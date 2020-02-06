@@ -17,16 +17,13 @@
 
 package org.keycloak.testsuite.keys;
 
-import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.graphene.page.Page;
-import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.Rule;
 import org.junit.Test;
 import org.keycloak.common.util.Base64Url;
 import org.keycloak.common.util.MultivaluedHashMap;
 import org.keycloak.crypto.Algorithm;
 import org.keycloak.crypto.KeyType;
-import org.keycloak.jose.jws.AlgorithmType;
 import org.keycloak.keys.GeneratedHmacKeyProviderFactory;
 import org.keycloak.keys.KeyProvider;
 import org.keycloak.representations.idm.ComponentRepresentation;
@@ -36,26 +33,24 @@ import org.keycloak.representations.idm.RealmRepresentation;
 import org.keycloak.testsuite.AbstractKeycloakTest;
 import org.keycloak.testsuite.AssertEvents;
 import org.keycloak.testsuite.admin.ApiUtil;
+import org.keycloak.testsuite.arquillian.annotation.AuthServerContainerExclude;
 import org.keycloak.testsuite.pages.AppPage;
 import org.keycloak.testsuite.pages.LoginPage;
 import org.keycloak.testsuite.runonserver.RunHelpers;
-import org.keycloak.testsuite.runonserver.RunOnServerDeployment;
 
 import javax.ws.rs.core.Response;
 import java.util.List;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 import static org.keycloak.testsuite.admin.AbstractAdminTest.loadJson;
+import org.keycloak.testsuite.arquillian.annotation.AuthServerContainerExclude.AuthServer;
 
 /**
  * @author <a href="mailto:sthorger@redhat.com">Stian Thorgersen</a>
  */
+@AuthServerContainerExclude(AuthServer.REMOTE)
 public class GeneratedHmacKeyProviderTest extends AbstractKeycloakTest {
-
-    @Deployment
-    public static WebArchive deploy() {
-        return RunOnServerDeployment.create();
-    }
 
     @Rule
     public AssertEvents events = new AssertEvents(this);
@@ -92,7 +87,7 @@ public class GeneratedHmacKeyProviderTest extends AbstractKeycloakTest {
 
         KeysMetadataRepresentation.KeyMetadataRepresentation key = null;
         for (KeysMetadataRepresentation.KeyMetadataRepresentation k : keys.getKeys()) {
-            if (k.getAlgorithms().contains(Algorithm.HS256)) {
+            if (k.getAlgorithm().equals(Algorithm.HS256)) {
                 key = k;
                 break;
             }
@@ -103,11 +98,11 @@ public class GeneratedHmacKeyProviderTest extends AbstractKeycloakTest {
         assertEquals(priority, key.getProviderPriority());
 
         ComponentRepresentation component = testingClient.server("test").fetch(RunHelpers.internalComponent(id));
-        assertEquals(32, Base64Url.decode(component.getConfig().getFirst("secret")).length);
+        assertEquals(64, Base64Url.decode(component.getConfig().getFirst("secret")).length);
     }
 
     @Test
-    public void largeKeysize() throws Exception {
+    public void largeKeysize() {
         long priority = System.currentTimeMillis();
 
         ComponentRepresentation rep = createRep("valid", GeneratedHmacKeyProviderFactory.ID);
@@ -127,7 +122,7 @@ public class GeneratedHmacKeyProviderTest extends AbstractKeycloakTest {
 
         KeysMetadataRepresentation.KeyMetadataRepresentation key = null;
         for (KeysMetadataRepresentation.KeyMetadataRepresentation k : keys.getKeys()) {
-            if (k.getAlgorithms().contains(Algorithm.HS256)) {
+            if (k.getAlgorithm().equals(Algorithm.HS256)) {
                 key = k;
                 break;
             }
@@ -154,7 +149,7 @@ public class GeneratedHmacKeyProviderTest extends AbstractKeycloakTest {
         response.close();
 
         ComponentRepresentation component = testingClient.server("test").fetch(RunHelpers.internalComponent(id));
-        assertEquals(32, Base64Url.decode(component.getConfig().getFirst("secret")).length);
+        assertEquals(64, Base64Url.decode(component.getConfig().getFirst("secret")).length);
 
         ComponentRepresentation createdRep = adminClient.realm("test").components().component(id).toRepresentation();
         createdRep.getConfig().putSingle("secretSize", "512");

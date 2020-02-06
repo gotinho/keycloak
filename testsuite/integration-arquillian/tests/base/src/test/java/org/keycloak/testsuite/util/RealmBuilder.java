@@ -81,6 +81,14 @@ public class RealmBuilder {
         return this;
     }
 
+    public RealmBuilder attribute(String key, String value) {
+        if (rep.getAttributes() == null) {
+            rep.setAttributes(new HashMap<>());
+        }
+        rep.getAttributes().put(key, value);
+        return this;
+    }
+
     public RealmBuilder testMail() {
         Map<String, String> config = new HashMap<>();
         config.put("from", MailServerConfiguration.FROM);
@@ -195,6 +203,16 @@ public class RealmBuilder {
 
     public RealmBuilder ssoSessionMaxLifespan(int ssoSessionMaxLifespan) {
         rep.setSsoSessionMaxLifespan(ssoSessionMaxLifespan);
+        return this;
+    }
+
+    public RealmBuilder ssoSessionIdleTimeoutRememberMe(int ssoSessionIdleTimeoutRememberMe){
+        rep.setSsoSessionIdleTimeoutRememberMe(ssoSessionIdleTimeoutRememberMe);
+        return this;
+    }
+
+    public RealmBuilder ssoSessionMaxLifespanRememberMe(int ssoSessionMaxLifespanRememberMe){
+        rep.setSsoSessionMaxLifespanRememberMe(ssoSessionMaxLifespanRememberMe);
         return this;
     }
 

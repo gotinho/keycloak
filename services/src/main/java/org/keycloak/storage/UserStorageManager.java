@@ -344,8 +344,10 @@ public class UserStorageManager implements UserProvider, OnUserCache, OnCreateCo
                 RealmModel realmModel = session.realms().getRealm(realm.getId());
                 if (realmModel == null) return;
                 UserModel deletedUser = session.userLocalStorage().getUserById(userId, realmModel);
-                new UserManager(session).removeUser(realmModel, deletedUser, session.userLocalStorage());
-                logger.debugf("Removed invalid user '%s'", userName);
+                if (deletedUser != null) {
+                    new UserManager(session).removeUser(realmModel, deletedUser, session.userLocalStorage());
+                    logger.debugf("Removed invalid user '%s'", userName);
+                }
             }
 
         });
@@ -458,6 +460,31 @@ public class UserStorageManager implements UserProvider, OnUserCache, OnCreateCo
     @Override
     public int getUsersCount(RealmModel realm) {
         return getUsersCount(realm, false);
+    }
+
+    @Override
+    public int getUsersCount(RealmModel realm, Set<String> groupIds) {
+        return localStorage().getUsersCount(realm, groupIds);
+    }
+
+    @Override
+    public int getUsersCount(String search, RealmModel realm) {
+        return localStorage().getUsersCount(search, realm);
+    }
+
+    @Override
+    public int getUsersCount(String search, RealmModel realm, Set<String> groupIds) {
+        return localStorage().getUsersCount(search, realm, groupIds);
+    }
+
+    @Override
+    public int getUsersCount(Map<String, String> params, RealmModel realm) {
+        return localStorage().getUsersCount(params, realm);
+    }
+
+    @Override
+    public int getUsersCount(Map<String, String> params, RealmModel realm, Set<String> groupIds) {
+        return localStorage().getUsersCount(params, realm, groupIds);
     }
 
     @FunctionalInterface

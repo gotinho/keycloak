@@ -53,11 +53,16 @@ import javax.ws.rs.core.Response;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
+import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.*;
+import org.keycloak.testsuite.arquillian.annotation.AuthServerContainerExclude;
+import org.keycloak.testsuite.arquillian.annotation.AuthServerContainerExclude.AuthServer;
 
 /**
  * @author <a href="mailto:sthorger@redhat.com">Stian Thorgersen</a>
@@ -65,8 +70,9 @@ import static org.junit.Assert.*;
 public class ClientTest extends AbstractAdminTest {
 
     @Test
+    @AuthServerContainerExclude(AuthServer.REMOTE)
     public void getClients() {
-        Assert.assertNames(realm.clients().findAll(), "account", "realm-management", "security-admin-console", "broker", Constants.ADMIN_CLI_CLIENT_ID);
+        Assert.assertNames(realm.clients().findAll(), "account", "account-console", "realm-management", "security-admin-console", "broker", Constants.ADMIN_CLI_CLIENT_ID);
     }
 
     private ClientRepresentation createClient() {
@@ -89,11 +95,12 @@ public class ClientTest extends AbstractAdminTest {
     }
 
     @Test
+    @AuthServerContainerExclude(AuthServer.REMOTE)
     public void createClientVerify() {
         String id = createClient().getId();
 
         assertNotNull(realm.clients().get(id));
-        Assert.assertNames(realm.clients().findAll(), "account", "realm-management", "security-admin-console", "broker", "my-app", Constants.ADMIN_CLI_CLIENT_ID);
+        Assert.assertNames(realm.clients().findAll(), "account", "account-console", "realm-management", "security-admin-console", "broker", "my-app", Constants.ADMIN_CLI_CLIENT_ID);
     }
 
     @Test
@@ -152,6 +159,36 @@ public class ClientTest extends AbstractAdminTest {
         List<ClientRepresentation> allClients = realm.clients().findAll();
         assertNotNull(allClients);
         assertFalse(allClients.isEmpty());
+    }
+
+    @Test
+    @AuthServerContainerExclude(AuthServer.REMOTE)
+    public void getAllClientsSearchAndPagination() {
+        Set<String> ids = new HashSet<>();
+        try {
+            for (int i = 1; i <= 10; i++) {
+                ClientRepresentation c = ClientBuilder.create().clientId("ccx-" + (i < 10 ? "0" + i : i)).build();
+                Response response = realm.clients().create(c);
+                ids.add(ApiUtil.getCreatedId(response));
+                response.close();
+            }
+
+            assertPaginatedClients(1, 10, realm.clients().findAll("ccx-", null, true, 0, 100));
+            assertPaginatedClients(1, 5, realm.clients().findAll("ccx-", null, true, 0, 5));
+            assertPaginatedClients(6, 10, realm.clients().findAll("ccx-", null, true, 5, 5));
+        } finally {
+            ids.stream().forEach(id -> realm.clients().get(id).remove());
+        }
+    }
+
+    private void assertPaginatedClients(int start, int end, List<ClientRepresentation> actual) {
+        List<String> expected = new LinkedList<>();
+        for (int i = start; i <= end; i++) {
+            expected.add("ccx-" + (i < 10 ? "0" + i : i));
+        }
+        List<String> a = actual.stream().map(rep -> rep.getClientId()).collect(Collectors.toList());
+        assertThat(a, is(expected));
+
     }
 
     @Test
@@ -224,6 +261,7 @@ public class ClientTest extends AbstractAdminTest {
     }
 
     @Test
+    @AuthServerContainerExclude(AuthServer.REMOTE)
     public void serviceAccount() {
         Response response = realm.clients().create(ClientBuilder.create().clientId("serviceClient").serviceAccount().build());
         String id = ApiUtil.getCreatedId(response);
@@ -231,6 +269,8 @@ public class ClientTest extends AbstractAdminTest {
         response.close();
         UserRepresentation userRep = realm.clients().get(id).getServiceAccountUser();
         assertEquals("service-account-serviceclient", userRep.getUsername());
+        // KEYCLOAK-11197 service accounts are no longer created with a placeholder e-mail.
+        assertNull(userRep.getEmail());
     }
 
     // KEYCLOAK-3421
@@ -438,7 +478,8 @@ public class ClientTest extends AbstractAdminTest {
         Assert.assertNames(scopesResource.clientLevel(accountMgmtId).listAll(), AccountRoles.VIEW_PROFILE);
         Assert.assertNames(scopesResource.clientLevel(accountMgmtId).listEffective(), AccountRoles.VIEW_PROFILE);
 
-        Assert.assertNames(scopesResource.clientLevel(accountMgmtId).listAvailable(), AccountRoles.MANAGE_ACCOUNT, AccountRoles.MANAGE_ACCOUNT_LINKS);
+        Assert.assertNames(scopesResource.clientLevel(accountMgmtId).listAvailable(), AccountRoles.MANAGE_ACCOUNT, AccountRoles.MANAGE_ACCOUNT_LINKS,
+                AccountRoles.VIEW_APPLICATIONS, AccountRoles.VIEW_CONSENT, AccountRoles.MANAGE_CONSENT);
 
         Assert.assertNames(scopesResource.getAll().getRealmMappings(), "role1");
         Assert.assertNames(scopesResource.getAll().getClientMappings().get(Constants.ACCOUNT_MANAGEMENT_CLIENT_ID).getMappings(), AccountRoles.VIEW_PROFILE);
@@ -453,7 +494,8 @@ public class ClientTest extends AbstractAdminTest {
         Assert.assertNames(scopesResource.realmLevel().listEffective());
         Assert.assertNames(scopesResource.realmLevel().listAvailable(), "offline_access", Constants.AUTHZ_UMA_AUTHORIZATION, "role1", "role2");
         Assert.assertNames(scopesResource.clientLevel(accountMgmtId).listAll());
-        Assert.assertNames(scopesResource.clientLevel(accountMgmtId).listAvailable(), AccountRoles.VIEW_PROFILE, AccountRoles.MANAGE_ACCOUNT, AccountRoles.MANAGE_ACCOUNT_LINKS);
+        Assert.assertNames(scopesResource.clientLevel(accountMgmtId).listAvailable(), AccountRoles.VIEW_PROFILE, AccountRoles.MANAGE_ACCOUNT, AccountRoles.MANAGE_ACCOUNT_LINKS,
+                AccountRoles.VIEW_APPLICATIONS, AccountRoles.VIEW_CONSENT, AccountRoles.MANAGE_CONSENT);
         Assert.assertNames(scopesResource.clientLevel(accountMgmtId).listEffective());
     }
 
@@ -516,6 +558,7 @@ public class ClientTest extends AbstractAdminTest {
         if (client.getClientId() != null) Assert.assertEquals(client.getClientId(), storedClient.getClientId());
         if (client.getName() != null) Assert.assertEquals(client.getName(), storedClient.getName());
         if (client.isEnabled() != null) Assert.assertEquals(client.isEnabled(), storedClient.isEnabled());
+        if (client.isAlwaysDisplayInConsole() != null) Assert.assertEquals(client.isAlwaysDisplayInConsole(), storedClient.isAlwaysDisplayInConsole());
         if (client.isBearerOnly() != null) Assert.assertEquals(client.isBearerOnly(), storedClient.isBearerOnly());
         if (client.isPublicClient() != null) Assert.assertEquals(client.isPublicClient(), storedClient.isPublicClient());
         if (client.isFullScopeAllowed() != null) Assert.assertEquals(client.isFullScopeAllowed(), storedClient.isFullScopeAllowed());

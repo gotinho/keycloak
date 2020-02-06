@@ -19,23 +19,19 @@ package org.keycloak.crypto;
 import javax.crypto.SecretKey;
 import java.security.Key;
 import java.security.cert.X509Certificate;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
 
 public class KeyWrapper {
 
     private String providerId;
     private long providerPriority;
     private String kid;
-    private Set<String> algorithms;
+    private String algorithm;
     private String type;
     private KeyUse use;
     private KeyStatus status;
     private SecretKey secretKey;
-    private Key signKey;
-    private Key verifyKey;
+    private Key publicKey;
+    private Key privateKey;
     private X509Certificate certificate;
 
     public String getProviderId() {
@@ -62,19 +58,12 @@ public class KeyWrapper {
         this.kid = kid;
     }
 
-    public Set<String> getAlgorithms() {
-        return algorithms;
+    public String getAlgorithm() {
+        return algorithm;
     }
 
-    public void setAlgorithms(String... algorithms) {
-        this.algorithms = new HashSet<>();
-        for (String a : algorithms) {
-            this.algorithms.add(a);
-        }
-    }
-
-    public void setAlgorithms(Set<String> algorithms) {
-        this.algorithms = algorithms;
+    public void setAlgorithm(String algorithm) {
+        this.algorithm = algorithm;
     }
 
     public String getType() {
@@ -109,20 +98,20 @@ public class KeyWrapper {
         this.secretKey = secretKey;
     }
 
-    public Key getSignKey() {
-        return signKey;
+    public Key getPrivateKey() {
+        return privateKey;
     }
 
-    public void setSignKey(Key signKey) {
-        this.signKey = signKey;
+    public void setPrivateKey(Key privateKey) {
+        this.privateKey = privateKey;
     }
 
-    public Key getVerifyKey() {
-        return verifyKey;
+    public Key getPublicKey() {
+        return publicKey;
     }
 
-    public void setVerifyKey(Key verifyKey) {
-        this.verifyKey = verifyKey;
+    public void setPublicKey(Key publicKey) {
+        this.publicKey = publicKey;
     }
 
     public X509Certificate getCertificate() {
@@ -132,4 +121,5 @@ public class KeyWrapper {
     public void setCertificate(X509Certificate certificate) {
         this.certificate = certificate;
     }
+
 }

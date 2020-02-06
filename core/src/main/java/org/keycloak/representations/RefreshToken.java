@@ -17,6 +17,7 @@
 
 package org.keycloak.representations;
 
+import org.keycloak.TokenCategory;
 import org.keycloak.util.TokenUtil;
 
 import java.util.HashMap;
@@ -45,17 +46,21 @@ public class RefreshToken extends AccessToken {
         this.issuedFor = token.issuedFor;
         this.sessionState = token.sessionState;
         this.nonce = token.nonce;
-        this.audience = token.audience;
+        this.audience = new String[] { token.issuer };
         this.scope = token.scope;
         if (token.realmAccess != null) {
             realmAccess = token.realmAccess.clone();
         }
         if (token.resourceAccess != null) {
-            resourceAccess = new HashMap<String, Access>();
+            resourceAccess = new HashMap<>();
             for (Map.Entry<String, Access> entry : token.resourceAccess.entrySet()) {
                 resourceAccess.put(entry.getKey(), entry.getValue().clone());
             }
         }
     }
 
+    @Override
+    public TokenCategory getCategory() {
+        return TokenCategory.INTERNAL;
+    }
 }

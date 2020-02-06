@@ -25,12 +25,9 @@ import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.impl.client.BasicCookieStore;
 import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.impl.client.HttpClients;
 import org.hamcrest.Matchers;
-import org.hamcrest.core.StringStartsWith;
 import org.jboss.arquillian.graphene.page.Page;
-import org.jgroups.protocols.TP;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -46,7 +43,6 @@ import org.keycloak.testsuite.util.ClientBuilder;
 import org.keycloak.testsuite.util.ClientManager;
 import org.keycloak.testsuite.util.OAuthClient;
 import org.keycloak.testsuite.util.RealmBuilder;
-import org.openqa.selenium.By;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -144,7 +140,7 @@ public class OAuthRedirectUriTest extends AbstractKeycloakTest {
         realm.client(installedApp7);
 
         ClientBuilder installedApp8 = ClientBuilder.create().id("test-fragment").name("test-fragment")
-                .redirectUris("http://localhost/*")
+                .redirectUris("http://localhost:8180/*", "https://localhost:8543/*")
                 .secret("password");
         realm.client(installedApp8);
 
@@ -159,6 +155,14 @@ public class OAuthRedirectUriTest extends AbstractKeycloakTest {
     @Test
     public void testNoParam() throws IOException {
         oauth.redirectUri(null);
+        oauth.openLoginForm();
+        Assert.assertTrue(errorPage.isCurrent());
+        Assert.assertEquals("Invalid parameter: redirect_uri", errorPage.getError());
+    }
+
+    @Test
+    public void testRelativeUri() throws IOException {
+        oauth.redirectUri("/foo/../bar");
         oauth.openLoginForm();
         Assert.assertTrue(errorPage.isCurrent());
         Assert.assertEquals("Invalid parameter: redirect_uri", errorPage.getError());

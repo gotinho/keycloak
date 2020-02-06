@@ -34,6 +34,7 @@ import java.util.*;
 public interface RealmModel extends RoleContainerModel {
     interface RealmCreationEvent extends ProviderEvent {
         RealmModel getCreatedRealm();
+        KeycloakSession getKeycloakSession();
     }
 
     interface RealmPostCreateEvent extends ProviderEvent {
@@ -162,6 +163,9 @@ public interface RealmModel extends RoleContainerModel {
 
     void setResetPasswordAllowed(boolean resetPasswordAllowed);
 
+    String getDefaultSignatureAlgorithm();
+    void setDefaultSignatureAlgorithm(String defaultSignatureAlgorithm);
+
     boolean isRevokeRefreshToken();
     void setRevokeRefreshToken(boolean revokeRefreshToken);
 
@@ -173,6 +177,12 @@ public interface RealmModel extends RoleContainerModel {
 
     int getSsoSessionMaxLifespan();
     void setSsoSessionMaxLifespan(int seconds);
+
+    int getSsoSessionIdleTimeoutRememberMe();
+    void setSsoSessionIdleTimeoutRememberMe(int seconds);
+
+    int getSsoSessionMaxLifespanRememberMe();
+    void setSsoSessionMaxLifespanRememberMe(int seconds);
 
     int getOfflineSessionIdleTimeout();
     void setOfflineSessionIdleTimeout(int seconds);
@@ -230,6 +240,30 @@ public interface RealmModel extends RoleContainerModel {
     OTPPolicy getOTPPolicy();
     void setOTPPolicy(OTPPolicy policy);
 
+    /**
+     * @return  WebAuthn policy for 2-factor authentication
+     */
+    WebAuthnPolicy getWebAuthnPolicy();
+
+    /**
+     * Set WebAuthn policy for 2-factor authentication
+     *
+     * @param policy
+     */
+    void setWebAuthnPolicy(WebAuthnPolicy policy);
+
+    /**
+     *
+     * @return WebAuthn passwordless policy below. This is temporary and will be removed later.
+     */
+    WebAuthnPolicy getWebAuthnPolicyPasswordless();
+
+    /**
+     * Set WebAuthn passwordless policy below. This is temporary and will be removed later.
+     * @param policy
+     */
+    void setWebAuthnPolicyPasswordless(WebAuthnPolicy policy);
+
     RoleModel getRoleById(String id);
 
     List<GroupModel> getDefaultGroups();
@@ -239,6 +273,10 @@ public interface RealmModel extends RoleContainerModel {
     void removeDefaultGroup(GroupModel group);
 
     List<ClientModel> getClients();
+    List<ClientModel> getClients(Integer firstResult, Integer maxResults);
+    Long getClientsCount();
+
+    List<ClientModel> getAlwaysDisplayInConsoleClients();
 
     ClientModel addClient(String name);
 
@@ -248,7 +286,8 @@ public interface RealmModel extends RoleContainerModel {
 
     ClientModel getClientById(String id);
     ClientModel getClientByClientId(String clientId);
-
+    List<ClientModel> searchClientByClientId(String clientId, Integer firstResult, Integer maxResults);
+    
     void updateRequiredCredentials(Set<String> creds);
 
     Map<String, String> getBrowserSecurityHeaders();
@@ -285,6 +324,7 @@ public interface RealmModel extends RoleContainerModel {
 
     List<AuthenticationExecutionModel> getAuthenticationExecutions(String flowId);
     AuthenticationExecutionModel getAuthenticationExecutionById(String id);
+    AuthenticationExecutionModel getAuthenticationExecutionByFlowId(String flowId);
     AuthenticationExecutionModel addAuthenticatorExecution(AuthenticationExecutionModel model);
     void updateAuthenticatorExecution(AuthenticationExecutionModel model);
     void removeAuthenticatorExecution(AuthenticationExecutionModel model);
@@ -314,8 +354,8 @@ public interface RealmModel extends RoleContainerModel {
     IdentityProviderMapperModel addIdentityProviderMapper(IdentityProviderMapperModel model);
     void removeIdentityProviderMapper(IdentityProviderMapperModel mapping);
     void updateIdentityProviderMapper(IdentityProviderMapperModel mapping);
-    public IdentityProviderMapperModel getIdentityProviderMapperById(String id);
-    public IdentityProviderMapperModel getIdentityProviderMapperByName(String brokerAlias, String name);
+    IdentityProviderMapperModel getIdentityProviderMapperById(String id);
+    IdentityProviderMapperModel getIdentityProviderMapperByName(String brokerAlias, String name);
 
 
     /**

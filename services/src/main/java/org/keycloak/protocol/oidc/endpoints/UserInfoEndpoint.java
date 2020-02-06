@@ -20,14 +20,17 @@ import org.jboss.resteasy.annotations.cache.NoCache;
 import org.jboss.resteasy.spi.HttpRequest;
 import org.jboss.resteasy.spi.HttpResponse;
 import org.keycloak.OAuthErrorException;
-import org.keycloak.RSATokenVerifier;
+import org.keycloak.TokenCategory;
+import org.keycloak.TokenVerifier;
 import org.keycloak.common.ClientConnection;
 import org.keycloak.common.VerificationException;
+import org.keycloak.crypto.SignatureProvider;
+import org.keycloak.crypto.SignatureSignerContext;
+import org.keycloak.crypto.SignatureVerifierContext;
 import org.keycloak.events.Details;
 import org.keycloak.events.Errors;
 import org.keycloak.events.EventBuilder;
 import org.keycloak.events.EventType;
-import org.keycloak.jose.jws.Algorithm;
 import org.keycloak.jose.jws.JWSBuilder;
 import org.keycloak.models.AuthenticatedClientSessionModel;
 import org.keycloak.models.ClientModel;
@@ -37,7 +40,7 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 import org.keycloak.models.UserSessionModel;
 import org.keycloak.protocol.oidc.OIDCAdvancedConfigWrapper;
-import org.keycloak.protocol.oidc.TokenManager;
+import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.representations.AccessToken;
 import org.keycloak.services.ErrorResponseException;
 import org.keycloak.services.Urls;
@@ -45,8 +48,8 @@ import org.keycloak.services.managers.AppAuthManager;
 import org.keycloak.services.managers.AuthenticationManager;
 import org.keycloak.services.managers.UserSessionCrossDCManager;
 import org.keycloak.services.resources.Cors;
-import org.keycloak.services.util.MtlsHoKTokenUtil;
 import org.keycloak.services.util.DefaultClientSessionContext;
+import org.keycloak.services.util.MtlsHoKTokenUtil;
 import org.keycloak.utils.MediaType;
 
 import javax.ws.rs.GET;
@@ -56,11 +59,9 @@ import javax.ws.rs.Path;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
-import javax.ws.rs.core.UriInfo;
-import java.security.PrivateKey;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * @author pedroigor
@@ -74,19 +75,16 @@ public class UserInfoEndpoint {
     private HttpResponse response;
 
     @Context
-    private UriInfo uriInfo;
-
-    @Context
     private KeycloakSession session;
 
     @Context
     private ClientConnection clientConnection;
 
-    private final TokenManager tokenManager;
+    private final org.keycloak.protocol.oidc.TokenManager tokenManager;
     private final AppAuthManager appAuthManager;
     private final RealmModel realm;
 
-    public UserInfoEndpoint(TokenManager tokenManager, RealmModel realm) {
+    public UserInfoEndpoint(org.keycloak.protocol.oidc.TokenManager tokenManager, RealmModel realm) {
         this.realm = realm;
         this.tokenManager = tokenManager;
         this.appAuthManager = new AppAuthManager();
@@ -102,7 +100,7 @@ public class UserInfoEndpoint {
     @GET
     @NoCache
     public Response issueUserInfoGet(@Context final HttpHeaders headers) {
-        String accessToken = this.appAuthManager.extractAuthorizationHeaderToken(headers);
+        String accessToken = this.appAuthManager.extractAuthorizationHeaderTokenOrReturnNull(headers);
         return issueUserInfo(accessToken);
     }
 
@@ -112,7 +110,7 @@ public class UserInfoEndpoint {
     public Response issueUserInfoPost() {
         // Try header first
         HttpHeaders headers = request.getHttpHeaders();
-        String accessToken = this.appAuthManager.extractAuthorizationHeaderToken(headers);
+        String accessToken = this.appAuthManager.extractAuthorizationHeaderTokenOrReturnNull(headers);
 
         // Fallback to form parameter
         if (accessToken == null) {
@@ -120,6 +118,12 @@ public class UserInfoEndpoint {
         }
 
         return issueUserInfo(accessToken);
+    }
+
+    private ErrorResponseException newUnauthorizedErrorResponseException(String oauthError, String errorMessage) {
+        // See: https://openid.net/specs/openid-connect-core-1_0.html#UserInfoError
+        response.getOutputHeaders().put(HttpHeaders.WWW_AUTHENTICATE, Collections.singletonList(String.format("Bearer realm=\"%s\", error=\"%s\", error_description=\"%s\"", realm.getName(), oauthError, errorMessage)));
+        return new ErrorResponseException(oauthError, errorMessage, Response.Status.UNAUTHORIZED);
     }
 
     private Response issueUserInfo(String tokenString) {
@@ -132,16 +136,18 @@ public class UserInfoEndpoint {
             throw new ErrorResponseException(OAuthErrorException.INVALID_REQUEST, "Token not provided", Response.Status.BAD_REQUEST);
         }
 
-        AccessToken token = null;
+        AccessToken token;
         try {
-            RSATokenVerifier verifier = RSATokenVerifier.create(tokenString)
-                    .realmUrl(Urls.realmIssuer(uriInfo.getBaseUri(), realm.getName()));
-            String kid = verifier.getHeader().getKeyId();
-            verifier.publicKey(session.keys().getRsaPublicKey(realm, kid));
+            TokenVerifier<AccessToken> verifier = TokenVerifier.create(tokenString, AccessToken.class).withDefaultChecks()
+                    .realmUrl(Urls.realmIssuer(session.getContext().getUri().getBaseUri(), realm.getName()));
+
+            SignatureVerifierContext verifierContext = session.getProvider(SignatureProvider.class, verifier.getHeader().getAlgorithm().name()).verifier(verifier.getHeader().getKeyId());
+            verifier.verifierContext(verifierContext);
+
             token = verifier.verify().getToken();
         } catch (VerificationException e) {
             event.error(Errors.INVALID_TOKEN);
-            throw new ErrorResponseException(OAuthErrorException.INVALID_TOKEN, "Token invalid: " + e.getMessage(), Response.Status.UNAUTHORIZED);
+            throw newUnauthorizedErrorResponseException(OAuthErrorException.INVALID_TOKEN, "Token verification failed");
         }
 
         ClientModel clientModel = realm.getClientByClientId(token.getIssuedFor());
@@ -149,6 +155,13 @@ public class UserInfoEndpoint {
             event.error(Errors.CLIENT_NOT_FOUND);
             throw new ErrorResponseException(OAuthErrorException.INVALID_REQUEST, "Client not found", Response.Status.BAD_REQUEST);
         }
+
+	    if (!clientModel.getProtocol().equals(OIDCLoginProtocol.LOGIN_PROTOCOL)) {
+            event.error(Errors.INVALID_CLIENT);
+            throw new ErrorResponseException(Errors.INVALID_CLIENT, "Wrong client protocol.", Response.Status.BAD_REQUEST);
+        }
+
+        session.getContext().setClient(clientModel);
 
         event.client(clientModel);
 
@@ -171,9 +184,9 @@ public class UserInfoEndpoint {
         // KEYCLOAK-6771 Certificate Bound Token
         // https://tools.ietf.org/html/draft-ietf-oauth-mtls-08#section-3
         if (OIDCAdvancedConfigWrapper.fromClientModel(clientModel).isUseMtlsHokToken()) {
-            if (!MtlsHoKTokenUtil.verifyTokenBindingWithClientCertificate(token, request)) {
+            if (!MtlsHoKTokenUtil.verifyTokenBindingWithClientCertificate(token, request, session)) {
                 event.error(Errors.NOT_ALLOWED);
-                throw new ErrorResponseException(OAuthErrorException.UNAUTHORIZED_CLIENT, "Client certificate missing, or its thumbprint and one in the refresh token did NOT match", Response.Status.UNAUTHORIZED);
+                throw newUnauthorizedErrorResponseException(OAuthErrorException.UNAUTHORIZED_CLIENT, "Client certificate missing, or its thumbprint and one in the refresh token did NOT match");
             }
         }
 
@@ -181,12 +194,12 @@ public class UserInfoEndpoint {
         AuthenticatedClientSessionModel clientSession = userSession.getAuthenticatedClientSessionByClient(clientModel.getId());
 
         // Retrieve by latest scope parameter
-        ClientSessionContext clientSessionCtx = DefaultClientSessionContext.fromClientSessionScopeParameter(clientSession);
+        ClientSessionContext clientSessionCtx = DefaultClientSessionContext.fromClientSessionScopeParameter(clientSession, session);
 
         AccessToken userInfo = new AccessToken();
         tokenManager.transformUserInfoAccessToken(session, userInfo, userSession, clientSessionCtx);
 
-        Map<String, Object> claims = new HashMap<String, Object>();
+        Map<String, Object> claims = new HashMap<>();
         claims.put("sub", userModel.getId());
         claims.putAll(userInfo.getOtherClaims());
 
@@ -194,17 +207,17 @@ public class UserInfoEndpoint {
         OIDCAdvancedConfigWrapper cfg = OIDCAdvancedConfigWrapper.fromClientModel(clientModel);
 
         if (cfg.isUserInfoSignatureRequired()) {
-            String issuerUrl = Urls.realmIssuer(uriInfo.getBaseUri(), realm.getName());
+            String issuerUrl = Urls.realmIssuer(session.getContext().getUri().getBaseUri(), realm.getName());
             String audience = clientModel.getClientId();
             claims.put("iss", issuerUrl);
             claims.put("aud", audience);
 
-            Algorithm signatureAlg = cfg.getUserInfoSignedResponseAlg();
-            PrivateKey privateKey = session.keys().getActiveRsaKey(realm).getPrivateKey();
+            String signatureAlgorithm = session.tokens().signatureAlgorithm(TokenCategory.USERINFO);
 
-            String signedUserInfo = new JWSBuilder()
-                    .jsonContent(claims)
-                    .sign(signatureAlg, privateKey);
+            SignatureProvider signatureProvider = session.getProvider(SignatureProvider.class, signatureAlgorithm);
+            SignatureSignerContext signer = signatureProvider.signer();
+
+            String signedUserInfo = new JWSBuilder().type("JWT").jsonContent(claims).sign(signer);
 
             responseBuilder = Response.ok(signedUserInfo).header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JWT);
 
@@ -218,7 +231,7 @@ public class UserInfoEndpoint {
 
         event.success();
 
-        return Cors.add(request, responseBuilder).auth().allowedOrigins(token).build();
+        return Cors.add(request, responseBuilder).auth().allowedOrigins(session, clientModel).build();
     }
 
 
@@ -226,11 +239,13 @@ public class UserInfoEndpoint {
         UserSessionModel userSession = new UserSessionCrossDCManager(session).getUserSessionWithClient(realm, token.getSessionState(), false, client.getId());
         UserSessionModel offlineUserSession = null;
         if (AuthenticationManager.isSessionValid(realm, userSession)) {
+            checkTokenIssuedAt(token, userSession, event);
             event.session(userSession);
             return userSession;
         } else {
             offlineUserSession = new UserSessionCrossDCManager(session).getUserSessionWithClient(realm, token.getSessionState(), true, client.getId());
             if (AuthenticationManager.isOfflineSessionValid(realm, offlineUserSession)) {
+                checkTokenIssuedAt(token, offlineUserSession, event);
                 event.session(offlineUserSession);
                 return offlineUserSession;
             }
@@ -238,7 +253,7 @@ public class UserInfoEndpoint {
 
         if (userSession == null && offlineUserSession == null) {
             event.error(Errors.USER_SESSION_NOT_FOUND);
-            throw new ErrorResponseException(OAuthErrorException.INVALID_REQUEST, "User session not found or doesn't have client attached on it", Response.Status.UNAUTHORIZED);
+            throw newUnauthorizedErrorResponseException(OAuthErrorException.INVALID_REQUEST, "User session not found or doesn't have client attached on it");
         }
 
         if (userSession != null) {
@@ -248,7 +263,13 @@ public class UserInfoEndpoint {
         }
 
         event.error(Errors.SESSION_EXPIRED);
-        throw new ErrorResponseException(OAuthErrorException.INVALID_TOKEN, "Session expired", Response.Status.UNAUTHORIZED);
+        throw newUnauthorizedErrorResponseException(OAuthErrorException.INVALID_TOKEN, "Session expired");
     }
 
+    private void checkTokenIssuedAt(AccessToken token, UserSessionModel userSession, EventBuilder event) throws ErrorResponseException {
+        if (token.getIssuedAt() + 1 < userSession.getStarted()) {
+            event.error(Errors.INVALID_TOKEN);
+            throw newUnauthorizedErrorResponseException(OAuthErrorException.INVALID_TOKEN, "Stale token");
+        }
+    }
 }

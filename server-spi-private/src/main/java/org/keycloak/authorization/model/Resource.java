@@ -29,6 +29,8 @@ import java.util.Set;
  */
 public interface Resource {
 
+    String EXACT_NAME = "EXACT_NAME";
+
     /**
      * Returns the unique identifier for this instance.
      *
@@ -180,4 +182,6 @@ public interface Resource {
     void setAttribute(String name, List<String> values);
 
     void removeAttribute(String name);
+
+    boolean isFetched(String association);
 }

@@ -182,6 +182,7 @@ public class ResourceRepresentation {
     }
 
     @Deprecated
+    @JsonSetter("uri")
     public void setUri(String uri) {
         if (uri != null && !"".equalsIgnoreCase(uri.trim())) {
             this.uris = Collections.singleton(uri);
@@ -199,15 +200,6 @@ public class ResourceRepresentation {
 
             this.uris = resultSet;
         }
-    }
-
-    @JsonProperty("uri")
-    public void addUri(String uri) {
-        if (this.uris == null) {
-            this.uris = new HashSet<>();
-        }
-
-        uris.add(uri);
     }
 
     public void setType(String type) {
@@ -272,6 +264,13 @@ public class ResourceRepresentation {
         for (String scopeName : scopeNames) {
             scopes.add(new ScopeRepresentation(scopeName));
         }
+    }
+
+    public void addScope(ScopeRepresentation scope) {
+        if (scopes == null) {
+            scopes = new HashSet<>();
+        }
+        scopes.add(scope);
     }
 
     public Map<String, List<String>> getAttributes() {

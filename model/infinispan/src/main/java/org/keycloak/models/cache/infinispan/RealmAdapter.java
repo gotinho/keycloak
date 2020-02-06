@@ -22,6 +22,7 @@ import org.keycloak.common.enums.SslRequired;
 import org.keycloak.component.ComponentModel;
 import org.keycloak.models.*;
 import org.keycloak.models.cache.CachedRealmModel;
+import org.keycloak.models.cache.UserCache;
 import org.keycloak.models.cache.infinispan.entities.CachedRealm;
 import org.keycloak.storage.UserStorageProvider;
 import org.keycloak.storage.client.ClientStorageProvider;
@@ -199,6 +200,18 @@ public class RealmAdapter implements CachedRealmModel {
     public void setRememberMe(boolean rememberMe) {
         getDelegateForUpdate();
         updated.setRememberMe(rememberMe);
+    }
+
+    @Override
+    public String getDefaultSignatureAlgorithm() {
+        if(isUpdated()) return updated.getDefaultSignatureAlgorithm();
+        return cached.getDefaultSignatureAlgorithm();
+    }
+
+    @Override
+    public void setDefaultSignatureAlgorithm(String defaultSignatureAlgorithm) {
+        getDelegateForUpdate();
+        updated.setDefaultSignatureAlgorithm(defaultSignatureAlgorithm);
     }
 
     @Override
@@ -406,6 +419,30 @@ public class RealmAdapter implements CachedRealmModel {
     }
 
     @Override
+    public int getSsoSessionIdleTimeoutRememberMe() {
+        if (updated != null) return updated.getSsoSessionIdleTimeoutRememberMe();
+        return cached.getSsoSessionIdleTimeoutRememberMe();
+    }
+
+    @Override
+    public void setSsoSessionIdleTimeoutRememberMe(int seconds) {
+        getDelegateForUpdate();
+        updated.setSsoSessionIdleTimeoutRememberMe(seconds);
+    }
+
+    @Override
+    public int getSsoSessionMaxLifespanRememberMe() {
+        if (updated != null) return updated.getSsoSessionMaxLifespanRememberMe();
+        return cached.getSsoSessionMaxLifespanRememberMe();
+    }
+
+    @Override
+    public void setSsoSessionMaxLifespanRememberMe(int seconds) {
+        getDelegateForUpdate();
+        updated.setSsoSessionMaxLifespanRememberMe(seconds);
+    }
+
+    @Override
     public int getOfflineSessionIdleTimeout() {
         if (isUpdated()) return updated.getOfflineSessionIdleTimeout();
         return cached.getOfflineSessionIdleTimeout();
@@ -585,6 +622,30 @@ public class RealmAdapter implements CachedRealmModel {
     }
 
     @Override
+    public WebAuthnPolicy getWebAuthnPolicy() {
+        if (isUpdated()) return updated.getWebAuthnPolicy();
+        return cached.getWebAuthnPolicy();
+    }
+
+    @Override
+    public void setWebAuthnPolicy(WebAuthnPolicy policy) {
+        getDelegateForUpdate();
+        updated.setWebAuthnPolicy(policy);
+    }
+
+    @Override
+    public WebAuthnPolicy getWebAuthnPolicyPasswordless() {
+        if (isUpdated()) return updated.getWebAuthnPolicyPasswordless();
+        return cached.getWebAuthnPasswordlessPolicy();
+    }
+
+    @Override
+    public void setWebAuthnPolicyPasswordless(WebAuthnPolicy policy) {
+        getDelegateForUpdate();
+        updated.setWebAuthnPolicyPasswordless(policy);
+    }
+
+    @Override
     public RoleModel getRoleById(String id) {
         if (isUpdated()) return updated.getRoleById(id);
         return cacheSession.getRoleById(id, this);
@@ -644,7 +705,11 @@ public class RealmAdapter implements CachedRealmModel {
     @Override
     public List<ClientModel> getClients() {
         return cacheSession.getClients(this);
+    }
 
+    @Override
+    public List<ClientModel> getAlwaysDisplayInConsoleClients() {
+        return cacheSession.getAlwaysDisplayInConsoleClients(this);
     }
 
     @Override
@@ -671,6 +736,21 @@ public class RealmAdapter implements CachedRealmModel {
     @Override
     public ClientModel getClientByClientId(String clientId) {
         return cacheSession.getClientByClientId(clientId, this);
+    }
+
+    @Override
+    public List<ClientModel> searchClientByClientId(String clientId, Integer firstResult, Integer maxResults) {
+        return cacheSession.searchClientsByClientId(clientId, firstResult, maxResults, this);
+    }
+
+    @Override
+    public List<ClientModel> getClients(Integer firstResult, Integer maxResults) {
+        return cacheSession.getClients(this, firstResult, maxResults);
+    }
+
+    @Override
+    public Long getClientsCount() {
+        return cacheSession.getClientsCount(this);
     }
 
     @Override
@@ -893,8 +973,17 @@ public class RealmAdapter implements CachedRealmModel {
     public Set<RoleModel> getRoles() {
         return cacheSession.getRealmRoles(this);
     }
+    
+    @Override
+    public Set<RoleModel> getRoles(Integer first, Integer max) {
+        return cacheSession.getRealmRoles(this, first, max);
+    }
 
-
+    @Override
+    public Set<RoleModel> searchForRoles(String search, Integer first, Integer max) {
+        return cacheSession.searchForRoles(this, search, first, max);
+    }
+    
     @Override
     public RoleModel addRole(String name) {
         return cacheSession.addRealmRole(this, name);
@@ -921,7 +1010,7 @@ public class RealmAdapter implements CachedRealmModel {
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (o == null || !(o instanceof RealmModel)) return false;
+        if (!(o instanceof RealmModel)) return false;
 
         RealmModel that = (RealmModel) o;
         return that.getId().equals(getId());
@@ -1165,6 +1254,12 @@ public class RealmAdapter implements CachedRealmModel {
     }
 
     @Override
+    public AuthenticationExecutionModel getAuthenticationExecutionByFlowId(String flowId) {
+        if (isUpdated()) return updated.getAuthenticationExecutionByFlowId(flowId);
+        return cached.getAuthenticationExecutionByFlowId(flowId);
+    }
+
+    @Override
     public AuthenticationExecutionModel addAuthenticatorExecution(AuthenticationExecutionModel model) {
         getDelegateForUpdate();
         return updated.addAuthenticatorExecution(model);
@@ -1316,7 +1411,7 @@ public class RealmAdapter implements CachedRealmModel {
         if (isUpdated()) return updated.getClientScopes();
         List<String> clientScopes = cached.getClientScopes();
         if (clientScopes.isEmpty()) return Collections.EMPTY_LIST;
-        List<ClientScopeModel> apps = new LinkedList<ClientScopeModel>();
+        List<ClientScopeModel> apps = new LinkedList<>();
         for (String id : clientScopes) {
             ClientScopeModel model = cacheSession.getClientScopeById(id, this);
             if (model == null) {
@@ -1401,19 +1496,25 @@ public class RealmAdapter implements CachedRealmModel {
 
     public void executeEvictions(ComponentModel model) {
         if (model == null) return;
-        // If not realm component, check to see if it is a user storage provider child component (i.e. LDAP mapper)
-        if (model.getParentId() != null && !model.getParentId().equals(getId())) {
-            ComponentModel parent = getComponent(model.getParentId());
-            if (parent != null && UserStorageProvider.class.getName().equals(parent.getProviderType())) {
-                session.userCache().evict(this);
-            }
-            return;
+        
+        // if user cache is disabled this is null
+        UserCache userCache = session.userCache(); 
+        if (userCache != null) {        
+          // If not realm component, check to see if it is a user storage provider child component (i.e. LDAP mapper)
+          if (model.getParentId() != null && !model.getParentId().equals(getId())) {
+              ComponentModel parent = getComponent(model.getParentId());
+              if (parent != null && UserStorageProvider.class.getName().equals(parent.getProviderType())) {
+                userCache.evict(this);
+              }
+              return;
+          }
+  
+          // invalidate entire user cache if we're dealing with user storage SPI
+          if (UserStorageProvider.class.getName().equals(model.getProviderType())) {
+            userCache.evict(this);
+          }
         }
-
-        // invalidate entire user cache if we're dealing with user storage SPI
-        if (UserStorageProvider.class.getName().equals(model.getProviderType())) {
-            session.userCache().evict(this);
-        }
+        
         // invalidate entire realm if we're dealing with client storage SPI
         // entire realm because of client roles, client lists, and clients
         if (ClientStorageProvider.class.getName().equals(model.getProviderType())) {

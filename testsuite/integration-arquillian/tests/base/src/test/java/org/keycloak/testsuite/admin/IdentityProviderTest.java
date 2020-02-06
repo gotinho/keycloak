@@ -29,6 +29,7 @@ import org.keycloak.dom.saml.v2.metadata.SPSSODescriptorType;
 import org.keycloak.events.admin.OperationType;
 import org.keycloak.events.admin.ResourceType;
 import org.keycloak.models.utils.StripSecretsUtils;
+import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.representations.idm.AdminEventRepresentation;
 import org.keycloak.representations.idm.ComponentRepresentation;
 import org.keycloak.representations.idm.IdentityProviderMapperRepresentation;
@@ -60,12 +61,17 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasEntry;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
@@ -137,6 +143,70 @@ public class IdentityProviderTest extends AbstractAdminTest {
         assertEquals(ComponentRepresentation.SECRET_VALUE, rep.getConfig().get("clientSecret"));
     }
 
+
+    @Test
+    public void testCreateWithBasicAuth() {
+        IdentityProviderRepresentation newIdentityProvider = createRep("new-identity-provider", "oidc");
+
+        newIdentityProvider.getConfig().put("clientId", "clientId");
+        newIdentityProvider.getConfig().put("clientSecret", "some secret value");
+        newIdentityProvider.getConfig().put("clientAuthMethod",OIDCLoginProtocol.CLIENT_SECRET_BASIC);
+
+        create(newIdentityProvider);
+
+        IdentityProviderResource identityProviderResource = realm.identityProviders().get("new-identity-provider");
+
+        assertNotNull(identityProviderResource);
+
+        IdentityProviderRepresentation representation = identityProviderResource.toRepresentation();
+
+        assertNotNull(representation);
+
+        assertNotNull(representation.getInternalId());
+        assertEquals("new-identity-provider", representation.getAlias());
+        assertEquals("oidc", representation.getProviderId());
+        assertEquals("clientId", representation.getConfig().get("clientId"));
+        assertEquals(ComponentRepresentation.SECRET_VALUE, representation.getConfig().get("clientSecret"));
+        assertEquals(OIDCLoginProtocol.CLIENT_SECRET_BASIC, representation.getConfig().get("clientAuthMethod"));
+
+        assertTrue(representation.isEnabled());
+        assertFalse(representation.isStoreToken());
+        assertFalse(representation.isTrustEmail());
+
+        assertEquals("some secret value", testingClient.testing("admin-client-test").getIdentityProviderConfig("new-identity-provider").get("clientSecret"));
+
+        IdentityProviderRepresentation rep = realm.identityProviders().findAll().stream().filter(i -> i.getAlias().equals("new-identity-provider")).findFirst().get();
+        assertEquals(ComponentRepresentation.SECRET_VALUE, rep.getConfig().get("clientSecret"));
+    }
+
+    @Test
+    public void testCreateWithJWT() {
+        IdentityProviderRepresentation newIdentityProvider = createRep("new-identity-provider", "oidc");
+
+        newIdentityProvider.getConfig().put("clientId", "clientId");
+        newIdentityProvider.getConfig().put("clientAuthMethod", OIDCLoginProtocol.PRIVATE_KEY_JWT);
+
+        create(newIdentityProvider);
+
+        IdentityProviderResource identityProviderResource = realm.identityProviders().get("new-identity-provider");
+
+        assertNotNull(identityProviderResource);
+
+        IdentityProviderRepresentation representation = identityProviderResource.toRepresentation();
+
+        assertNotNull(representation);
+
+        assertNotNull(representation.getInternalId());
+        assertEquals("new-identity-provider", representation.getAlias());
+        assertEquals("oidc", representation.getProviderId());
+        assertEquals("clientId", representation.getConfig().get("clientId"));
+        assertNull(representation.getConfig().get("clientSecret"));
+        assertEquals(OIDCLoginProtocol.PRIVATE_KEY_JWT, representation.getConfig().get("clientAuthMethod"));
+        assertTrue(representation.isEnabled());
+        assertFalse(representation.isStoreToken());
+        assertFalse(representation.isTrustEmail());
+    }
+
     @Test
     public void testUpdate() {
         IdentityProviderRepresentation newIdentityProvider = createRep("update-identity-provider", "oidc");
@@ -177,6 +247,15 @@ public class IdentityProviderTest extends AbstractAdminTest {
         assertEquals("changedClientId", representation.getConfig().get("clientId"));
 
         assertEquals("some secret value", testingClient.testing("admin-client-test").getIdentityProviderConfig("changed-alias").get("clientSecret"));
+
+        representation.getConfig().put("clientSecret", "${vault.key}");
+        identityProviderResource.update(representation);
+        event = assertAdminEvents.assertEvent(realmId, OperationType.UPDATE, AdminEventPaths.identityProviderPath(representation.getInternalId()), representation, ResourceType.IDENTITY_PROVIDER);
+        assertThat(event.getRepresentation(), containsString("${vault.key}"));
+        assertThat(event.getRepresentation(), not(containsString(ComponentRepresentation.SECRET_VALUE)));
+
+        assertThat(identityProviderResource.toRepresentation().getConfig(), hasEntry("clientSecret", "${vault.key}"));
+        assertEquals("${vault.key}", testingClient.testing("admin-client-test").getIdentityProviderConfig("changed-alias").get("clientSecret"));
     }
 
     @Test
@@ -247,47 +326,47 @@ public class IdentityProviderTest extends AbstractAdminTest {
         create(createRep("google", "google"));
         provider = realm.identityProviders().get("google");
         mapperTypes = provider.getMapperTypes();
-        assertMapperTypes(mapperTypes, "google-user-attribute-mapper");
+        assertMapperTypes(mapperTypes, "google-user-attribute-mapper", "oidc-username-idp-mapper");
 
         create(createRep("facebook", "facebook"));
         provider = realm.identityProviders().get("facebook");
         mapperTypes = provider.getMapperTypes();
-        assertMapperTypes(mapperTypes, "facebook-user-attribute-mapper");
+        assertMapperTypes(mapperTypes, "facebook-user-attribute-mapper", "oidc-username-idp-mapper");
 
         create(createRep("github", "github"));
         provider = realm.identityProviders().get("github");
         mapperTypes = provider.getMapperTypes();
-        assertMapperTypes(mapperTypes, "github-user-attribute-mapper");
+        assertMapperTypes(mapperTypes, "github-user-attribute-mapper", "oidc-username-idp-mapper");
 
         create(createRep("twitter", "twitter"));
         provider = realm.identityProviders().get("twitter");
         mapperTypes = provider.getMapperTypes();
-        assertMapperTypes(mapperTypes);
+        assertMapperTypes(mapperTypes, "oidc-username-idp-mapper");
 
         create(createRep("linkedin", "linkedin"));
         provider = realm.identityProviders().get("linkedin");
         mapperTypes = provider.getMapperTypes();
-        assertMapperTypes(mapperTypes, "linkedin-user-attribute-mapper");
+        assertMapperTypes(mapperTypes, "linkedin-user-attribute-mapper", "oidc-username-idp-mapper");
 
         create(createRep("microsoft", "microsoft"));
         provider = realm.identityProviders().get("microsoft");
         mapperTypes = provider.getMapperTypes();
-        assertMapperTypes(mapperTypes, "microsoft-user-attribute-mapper");
+        assertMapperTypes(mapperTypes, "microsoft-user-attribute-mapper", "oidc-username-idp-mapper");
 
         create(createRep("stackoverflow", "stackoverflow"));
         provider = realm.identityProviders().get("stackoverflow");
         mapperTypes = provider.getMapperTypes();
-        assertMapperTypes(mapperTypes, "stackoverflow-user-attribute-mapper");
+        assertMapperTypes(mapperTypes, "stackoverflow-user-attribute-mapper", "oidc-username-idp-mapper");
 
         create(createRep("keycloak-oidc", "keycloak-oidc"));
         provider = realm.identityProviders().get("keycloak-oidc");
         mapperTypes = provider.getMapperTypes();
-        assertMapperTypes(mapperTypes, "keycloak-oidc-role-to-role-idp-mapper", "oidc-user-attribute-idp-mapper", "oidc-role-idp-mapper", "oidc-username-idp-mapper");
+        assertMapperTypes(mapperTypes, "keycloak-oidc-role-to-role-idp-mapper", "oidc-user-attribute-idp-mapper", "oidc-role-idp-mapper", "oidc-username-idp-mapper", "oidc-advanced-role-idp-mapper");
 
         create(createRep("oidc", "oidc"));
         provider = realm.identityProviders().get("oidc");
         mapperTypes = provider.getMapperTypes();
-        assertMapperTypes(mapperTypes, "oidc-user-attribute-idp-mapper", "oidc-role-idp-mapper", "oidc-username-idp-mapper");
+        assertMapperTypes(mapperTypes, "oidc-user-attribute-idp-mapper", "oidc-role-idp-mapper", "oidc-username-idp-mapper", "oidc-advanced-role-idp-mapper");
 
         create(createRep("saml", "saml"));
         provider = realm.identityProviders().get("saml");
@@ -485,6 +564,38 @@ public class IdentityProviderTest extends AbstractAdminTest {
         assertEquals("offline_access", mappers.get(0).getConfig().get("role"));
     }
 
+    // KEYCLOAK-7872
+    @Test
+    public void testDeleteProtocolMappersAfterDeleteIdentityProvider() {
+        create(createRep("google3", "google"));
+
+        IdentityProviderResource provider = realm.identityProviders().get("google3");
+
+        IdentityProviderMapperRepresentation mapper = new IdentityProviderMapperRepresentation();
+        mapper.setIdentityProviderAlias("google3");
+        mapper.setName("my_mapper");
+        mapper.setIdentityProviderMapper("oidc-hardcoded-role-idp-mapper");
+        Map<String, String> config = new HashMap<>();
+        config.put("role", "offline_access");
+        mapper.setConfig(config);
+
+        Response response = provider.addMapper(mapper);
+
+        List<IdentityProviderMapperRepresentation> mappers = provider.getMappers();
+        assertThat(mappers, hasSize(1));
+
+        assertAdminEvents.clear();
+
+        provider.remove();
+        assertAdminEvents.assertEvent(realmId, OperationType.DELETE, AdminEventPaths.identityProviderPath("google3"), ResourceType.IDENTITY_PROVIDER);
+
+        create(createRep("google3", "google"));
+
+        IdentityProviderResource newProvider = realm.identityProviders().get("google3");
+
+        assertThat(newProvider.getMappers(), empty());
+    }
+
     @Test
     public void testInstalledIdentityProviders() {
         Response response = realm.identityProviders().getIdentityProviders("oidc");
@@ -604,7 +715,7 @@ public class IdentityProviderTest extends AbstractAdminTest {
         Assert.assertEquals("Parsed export type", EntityDescriptorType.class, entBody.getClass());
         EntityDescriptorType entity = (EntityDescriptorType) entBody;
 
-        Assert.assertEquals("EntityID", "http://localhost:8180/auth/realms/admin-client-test", entity.getEntityID());
+        Assert.assertEquals("EntityID", oauth.AUTH_SERVER_ROOT + "/realms/admin-client-test", entity.getEntityID());
 
         Assert.assertNotNull("ChoiceType not null", entity.getChoiceType());
         Assert.assertEquals("ChoiceType.size", 1, entity.getChoiceType().size());
@@ -633,7 +744,7 @@ public class IdentityProviderTest extends AbstractAdminTest {
         IndexedEndpointType endpoint = desc.getAssertionConsumerService().get(0);
 
         Assert.assertEquals("AssertionConsumerService.Location",
-                new URI("http://localhost:8180/auth/realms/admin-client-test/broker/saml/endpoint"), endpoint.getLocation());
+                new URI(oauth.AUTH_SERVER_ROOT + "/realms/admin-client-test/broker/saml/endpoint"), endpoint.getLocation());
         Assert.assertEquals("AssertionConsumerService.Binding",
                 new URI("urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"), endpoint.getBinding());
         Assert.assertTrue("AssertionConsumerService.isDefault", endpoint.isIsDefault());
@@ -645,7 +756,7 @@ public class IdentityProviderTest extends AbstractAdminTest {
         EndpointType sloEndpoint = desc.getSingleLogoutService().get(0);
 
         Assert.assertEquals("SingleLogoutService.Location",
-                new URI("http://localhost:8180/auth/realms/admin-client-test/broker/saml/endpoint"), sloEndpoint.getLocation());
+                new URI(oauth.AUTH_SERVER_ROOT + "/realms/admin-client-test/broker/saml/endpoint"), sloEndpoint.getLocation());
         Assert.assertEquals("SingleLogoutService.Binding",
                 new URI("urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"), sloEndpoint.getBinding());
 

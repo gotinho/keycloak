@@ -21,12 +21,14 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  * @author <a href="mailto:psilva@redhat.com">Pedro Igor</a>
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class Permission {
 
     @JsonProperty("rsid")
@@ -39,7 +41,7 @@ public class Permission {
     private Set<String> scopes;
 
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
-    private final Map<String, Set<String>> claims;
+    private Map<String, Set<String>> claims;
 
     public Permission() {
         this(null, null, null, null);
@@ -61,6 +63,9 @@ public class Permission {
     }
 
     public String getResourceId() {
+        if (resourceId == null || "".equals(resourceId.trim())) {
+            return null;
+        }
         return this.resourceId;
     }
 

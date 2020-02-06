@@ -25,6 +25,8 @@ import java.util.Map;
  */
 public class AuthorizationEndpointRequest {
 
+    String invalidRequestMessage;
+
     String clientId;
     String redirectUriParam;
     String responseType;
@@ -37,6 +39,7 @@ public class AuthorizationEndpointRequest {
     String nonce;
     Integer maxAge;
     String idpHint;
+    String action;
     String claims;
     Map<String, String> additionalReqParams = new HashMap<>();
 
@@ -94,6 +97,10 @@ public class AuthorizationEndpointRequest {
         return idpHint;
     }
 
+    public String getAction() {
+        return action;
+    }
+
     public String getClaims() {
         return claims;
     }
@@ -114,5 +121,9 @@ public class AuthorizationEndpointRequest {
 
     public String getDisplay() {
         return display;
+    }
+
+    public String getInvalidRequestMessage() {
+        return invalidRequestMessage;
     }
 }

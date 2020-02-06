@@ -44,7 +44,6 @@ import org.keycloak.sessions.RootAuthenticationSessionModel;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.Response;
-import javax.ws.rs.core.UriInfo;
 
 /**
  * Common base class for Authorization REST endpoints implementation, which have to be implemented by each protocol.
@@ -61,8 +60,6 @@ public abstract class AuthorizationEndpointBase {
     protected EventBuilder event;
     protected AuthenticationManager authManager;
 
-    @Context
-    protected UriInfo uriInfo;
     @Context
     protected HttpHeaders headers;
     @Context
@@ -87,7 +84,7 @@ public abstract class AuthorizationEndpointBase {
                 .setEventBuilder(event)
                 .setRealm(realm)
                 .setSession(session)
-                .setUriInfo(uriInfo)
+                .setUriInfo(session.getContext().getUri())
                 .setRequest(httpRequest);
 
         authSession.setAuthNote(AuthenticationProcessor.CURRENT_FLOW_PATH, flowPath);
@@ -114,11 +111,23 @@ public abstract class AuthorizationEndpointBase {
             // This means that client is just checking if the user is already completely logged in.
             // We cancel login if any authentication action or required action is required
             try {
-                if (processor.authenticateOnly() == null) {
-                    // processor.attachSession();
+                Response challenge = processor.authenticateOnly();
+                if (challenge == null) {
+                    // nothing to do - user is already authenticated;
                 } else {
-                    Response response = protocol.sendError(authSession, Error.PASSIVE_LOGIN_REQUIRED);
-                    return response;
+                    // KEYCLOAK-8043: forward the request with prompt=none to the default provider.
+                    if ("true".equals(authSession.getAuthNote(AuthenticationProcessor.FORWARDED_PASSIVE_LOGIN))) {
+                        RestartLoginCookie.setRestartCookie(session, realm, clientConnection, session.getContext().getUri(), authSession);
+                        if (redirectToAuthentication) {
+                            return processor.redirectToFlow();
+                        }
+                        // no need to trigger authenticate, just return the challenge we got from authenticateOnly.
+                        return challenge;
+                    }
+                    else {
+                        Response response = protocol.sendError(authSession, Error.PASSIVE_LOGIN_REQUIRED);
+                        return response;
+                    }
                 }
 
                 AuthenticationManager.setClientScopesInSession(authSession);
@@ -128,15 +137,13 @@ public abstract class AuthorizationEndpointBase {
                     return response;
                 }
 
-                // Attach session once no requiredActions or other things are required
-                processor.attachSession();
             } catch (Exception e) {
                 return processor.handleBrowserException(e);
             }
             return processor.finishAuthentication(protocol);
         } else {
             try {
-                RestartLoginCookie.setRestartCookie(session, realm, clientConnection, uriInfo, authSession);
+                RestartLoginCookie.setRestartCookie(session, realm, clientConnection, session.getContext().getUri(), authSession);
                 if (redirectToAuthentication) {
                     return processor.redirectToFlow();
                 }
@@ -152,7 +159,7 @@ public abstract class AuthorizationEndpointBase {
     }
 
     protected void checkSsl() {
-        if (!uriInfo.getBaseUri().getScheme().equals("https") && realm.getSslRequired().isRequired(clientConnection)) {
+        if (!session.getContext().getUri().getBaseUri().getScheme().equals("https") && realm.getSslRequired().isRequired(clientConnection)) {
             event.error(Errors.SSL_REQUIRED);
             throw new ErrorPageException(session, Response.Status.BAD_REQUEST, Messages.HTTPS_REQUIRED);
         }
@@ -199,5 +206,4 @@ public abstract class AuthorizationEndpointBase {
         return authSession;
 
     }
-
 }

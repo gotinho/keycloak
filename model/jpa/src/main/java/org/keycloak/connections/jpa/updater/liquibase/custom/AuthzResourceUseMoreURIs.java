@@ -14,7 +14,7 @@ public class AuthzResourceUseMoreURIs extends CustomKeycloakTask {
     @Override
     protected void generateStatementsImpl() throws CustomChangeException {
         try {
-            PreparedStatement statement = jdbcConnection.prepareStatement("select ID,URI from " + getTableName("RESOURCE_SERVER_RESOURCE"));
+            PreparedStatement statement = jdbcConnection.prepareStatement("select ID,URI from " + getTableName("RESOURCE_SERVER_RESOURCE") + " where URI is not null");
 
             try {
                 ResultSet resultSet = statement.executeQuery();
@@ -23,7 +23,7 @@ public class AuthzResourceUseMoreURIs extends CustomKeycloakTask {
                         String resourceId = resultSet.getString(1);
                         String resourceUri = resultSet.getString(2);
 
-                        InsertStatement insertComponent = new InsertStatement(null, null, database.correctObjectName("RESOURCE_URI", Table.class))
+                        InsertStatement insertComponent = new InsertStatement(null, null, database.correctObjectName("RESOURCE_URIS", Table.class))
                                 .addColumnValue("RESOURCE_ID", resourceId)
                                 .addColumnValue("VALUE", resourceUri);
 
@@ -36,7 +36,7 @@ public class AuthzResourceUseMoreURIs extends CustomKeycloakTask {
                 statement.close();
             }
 
-            confirmationMessage.append("Moved " + statements.size() + " records from RESOURCE_SERVER_RESOURCE to RESOURCE_URI table");
+            confirmationMessage.append("Moved " + statements.size() + " records from RESOURCE_SERVER_RESOURCE to RESOURCE_URIS table");
         } catch (Exception e) {
             throw new CustomChangeException(getTaskId() + ": Exception when updating data from previous version", e);
         }
@@ -44,6 +44,6 @@ public class AuthzResourceUseMoreURIs extends CustomKeycloakTask {
 
     @Override
     protected String getTaskId() {
-        return "Update 4.2.0.Final-SNAPSHOT";
+        return "Update 4.2.0.Final";
     }
 }

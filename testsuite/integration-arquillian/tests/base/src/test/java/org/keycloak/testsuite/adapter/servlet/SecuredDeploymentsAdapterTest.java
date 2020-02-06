@@ -21,6 +21,7 @@ package org.keycloak.testsuite.adapter.servlet;
 import static org.hamcrest.Matchers.containsString;
 
 import static org.junit.Assert.assertThat;
+import static org.keycloak.testsuite.arquillian.AuthServerTestEnricher.AUTH_SERVER_SSL_REQUIRED;
 import static org.keycloak.testsuite.util.URLAssert.assertCurrentUrlEquals;
 import static org.keycloak.testsuite.util.URLAssert.assertCurrentUrlStartsWithLoginUrlOf;
 
@@ -31,7 +32,9 @@ import org.jboss.arquillian.graphene.page.Page;
 import org.jboss.arquillian.test.api.ArquillianResource;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.After;
+import org.junit.Assume;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.keycloak.testsuite.adapter.AbstractServletsAdapterTest;
 import org.keycloak.testsuite.adapter.filter.AdapterActionsFilter;
@@ -40,14 +43,14 @@ import org.keycloak.testsuite.adapter.page.CustomerPortalSubsystem;
 import org.keycloak.testsuite.adapter.page.ProductPortalSubsystem;
 import org.keycloak.testsuite.arquillian.AppServerTestEnricher;
 import org.keycloak.testsuite.arquillian.annotation.AppServerContainer;
-import org.keycloak.testsuite.arquillian.containers.ContainerConstants;
+import org.keycloak.testsuite.utils.arquillian.ContainerConstants;
 import org.keycloak.testsuite.arquillian.containers.SelfManagedAppContainerLifecycle;
 
 @AppServerContainer(ContainerConstants.APP_SERVER_WILDFLY)
-@AppServerContainer(ContainerConstants.APP_SERVER_WILDFLY10)
-@AppServerContainer(ContainerConstants.APP_SERVER_WILDFLY9)
+@AppServerContainer(ContainerConstants.APP_SERVER_WILDFLY_DEPRECATED)
 @AppServerContainer(ContainerConstants.APP_SERVER_EAP)
 @AppServerContainer(ContainerConstants.APP_SERVER_EAP6)
+@AppServerContainer(ContainerConstants.APP_SERVER_EAP71)
 public class SecuredDeploymentsAdapterTest extends AbstractServletsAdapterTest implements SelfManagedAppContainerLifecycle {
 
     @ArquillianResource
@@ -72,6 +75,11 @@ public class SecuredDeploymentsAdapterTest extends AbstractServletsAdapterTest i
     @Deployment(name = CustomerDb.DEPLOYMENT_NAME)
     protected static WebArchive customerDb() {
         return servletDeployment(CustomerDb.DEPLOYMENT_NAME, AdapterActionsFilter.class, CustomerDatabaseServlet.class);
+    }
+
+    @BeforeClass
+    public static void assumeTLSEnabled() {
+        Assume.assumeTrue(AUTH_SERVER_SSL_REQUIRED);
     }
 
     @Before

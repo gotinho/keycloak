@@ -48,16 +48,10 @@ import javax.xml.xpath.XPathExpression;
 import javax.xml.xpath.XPathExpressionException;
 import javax.xml.xpath.XPathFactory;
 import org.jboss.logging.Logger;
-import static org.keycloak.testsuite.arquillian.AppServerTestEnricher.isEAP6AppServer;
-import static org.keycloak.testsuite.arquillian.AppServerTestEnricher.isEAPAppServer;
 import static org.keycloak.testsuite.arquillian.AppServerTestEnricher.isRelative;
 import static org.keycloak.testsuite.arquillian.AppServerTestEnricher.isTomcatAppServer;
-import static org.keycloak.testsuite.arquillian.AppServerTestEnricher.isUndertowAppServer;
 import static org.keycloak.testsuite.arquillian.AppServerTestEnricher.isWLSAppServer;
 import static org.keycloak.testsuite.arquillian.AppServerTestEnricher.isWASAppServer;
-import static org.keycloak.testsuite.arquillian.AppServerTestEnricher.isWildflyAppServer;
-import static org.keycloak.testsuite.arquillian.AppServerTestEnricher.isWildfly10AppServer;
-import static org.keycloak.testsuite.arquillian.AppServerTestEnricher.isWildfly9AppServer;
 import static org.keycloak.testsuite.arquillian.AuthServerTestEnricher.getAuthServerContextRoot;
 import static org.keycloak.testsuite.utils.io.IOUtil.appendChildInDocument;
 import static org.keycloak.testsuite.utils.io.IOUtil.documentToString;
@@ -145,20 +139,20 @@ public class DeploymentArchiveProcessor implements ApplicationArchiveProcessor {
                 if (AUTH_SERVER_SSL_REQUIRED) {
                     modifyDocElementAttribute(doc, "SingleSignOnService", "bindingUrl", "8080", System.getProperty("auth.server.https.port"));
                     modifyDocElementAttribute(doc, "SingleSignOnService", "bindingUrl", "http", "https");
-                    modifyDocElementAttribute(doc, "SingleSignOnService", "assertionConsumerServiceUrl", "8081", System.getProperty("app.server.https.port"));
+                    modifyDocElementAttribute(doc, "SingleSignOnService", "assertionConsumerServiceUrl", "8080", System.getProperty("app.server.https.port"));
                     modifyDocElementAttribute(doc, "SingleSignOnService", "assertionConsumerServiceUrl", "http", "https");
                     modifyDocElementAttribute(doc, "SingleLogoutService", "postBindingUrl", "8080", System.getProperty("auth.server.https.port"));
                     modifyDocElementAttribute(doc, "SingleLogoutService", "postBindingUrl", "http", "https");
                     modifyDocElementAttribute(doc, "SingleLogoutService", "redirectBindingUrl", "8080", System.getProperty("auth.server.https.port"));
                     modifyDocElementAttribute(doc, "SingleLogoutService", "redirectBindingUrl", "http", "https");
-                    modifyDocElementAttribute(doc, "SP", "logoutPage", "8081", System.getProperty("app.server.https.port"));
+                    modifyDocElementAttribute(doc, "SP", "logoutPage", "8080", System.getProperty("app.server.https.port"));
                     modifyDocElementAttribute(doc, "SP", "logoutPage", "http", "https");
                 } else {
                     modifyDocElementAttribute(doc, "SingleSignOnService", "bindingUrl", "8080", System.getProperty("auth.server.http.port"));
-                    modifyDocElementAttribute(doc, "SingleSignOnService", "assertionConsumerServiceUrl", "8081", System.getProperty("app.server.http.port"));
+                    modifyDocElementAttribute(doc, "SingleSignOnService", "assertionConsumerServiceUrl", "8080", System.getProperty("app.server.http.port"));
                     modifyDocElementAttribute(doc, "SingleLogoutService", "postBindingUrl", "8080", System.getProperty("auth.server.http.port"));
                     modifyDocElementAttribute(doc, "SingleLogoutService", "redirectBindingUrl", "8080", System.getProperty("auth.server.http.port"));
-                    modifyDocElementAttribute(doc, "SP", "logoutPage", "8081", System.getProperty("app.server.http.port"));
+                    modifyDocElementAttribute(doc, "SP", "logoutPage", "8080", System.getProperty("app.server.http.port"));
                 }
 
                 archive.add(new StringAsset(IOUtil.documentToString(doc)), adapterConfigPath);
@@ -256,9 +250,6 @@ public class DeploymentArchiveProcessor implements ApplicationArchiveProcessor {
             }
             
             appendChildInDocument(webXmlDoc, "web-app", filter);
-
-            filter.appendChild(filterName);
-            filter.appendChild(filterClass);
 
             // Limitation that all deployments of annotated class use same skipPattern. Refactor if something more flexible is needed (would require more tricky web.xml parsing though...)
             String skipPattern = testClass.getAnnotation(UseServletFilter.class).skipPattern();

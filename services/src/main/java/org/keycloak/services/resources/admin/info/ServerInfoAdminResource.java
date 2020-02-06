@@ -17,6 +17,7 @@
 
 package org.keycloak.services.resources.admin.info;
 
+import org.jboss.resteasy.annotations.cache.NoCache;
 import org.keycloak.broker.provider.IdentityProvider;
 import org.keycloak.broker.provider.IdentityProviderFactory;
 import org.keycloak.broker.social.SocialIdentityProvider;
@@ -86,6 +87,7 @@ public class ServerInfoAdminResource {
      * @return
      */
     @GET
+    @NoCache
     @Produces(MediaType.APPLICATION_JSON)
     public ServerInfoRepresentation getInfo() {
         ServerInfoRepresentation info = new ServerInfoRepresentation();
@@ -171,6 +173,7 @@ public class ServerInfoAdminResource {
 
             if (!Profile.isFeatureEnabled(Profile.Feature.ACCOUNT2)) {
                 themeNames.remove("keycloak-preview");
+                themeNames.remove("rh-sso-preview");
             }
 
             List<ThemeInfoRepresentation> themes = new LinkedList<>();
@@ -257,6 +260,7 @@ public class ServerInfoAdminResource {
             rep.setName(mapper.getDisplayType());
             rep.setHelpText(mapper.getHelpText());
             rep.setCategory(mapper.getDisplayCategory());
+            rep.setPriority(mapper.getPriority());
             rep.setProperties(new LinkedList<ConfigPropertyRepresentation>());
             List<ProviderConfigProperty> configProperties = mapper.getConfigProperties();
             rep.setProperties(ModelToRepresentation.toRepresentation(configProperties));
