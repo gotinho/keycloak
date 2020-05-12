@@ -17,7 +17,6 @@
 package org.keycloak.services.managers;
 
 import org.keycloak.Config;
-import org.keycloak.common.Profile;
 import org.keycloak.common.enums.SslRequired;
 import org.keycloak.migration.MigrationModelManager;
 import org.keycloak.models.AccountRoles;
@@ -41,6 +40,7 @@ import org.keycloak.models.utils.DefaultRequiredActions;
 import org.keycloak.models.utils.KeycloakModelUtils;
 import org.keycloak.models.utils.RepresentationToModel;
 import org.keycloak.protocol.ProtocolMapperUtils;
+import org.keycloak.protocol.oidc.OIDCConfigAttributes;
 import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.protocol.oidc.OIDCLoginProtocolFactory;
 import org.keycloak.protocol.oidc.mappers.AudienceResolveProtocolMapper;
@@ -58,6 +58,7 @@ import org.keycloak.services.clientregistration.policy.DefaultClientRegistration
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import org.keycloak.utils.ReservedCharValidator;
 
 /**
  * Per request object
@@ -97,6 +98,7 @@ public class RealmManager {
 
     public RealmModel createRealm(String id, String name) {
         if (id == null) id = KeycloakModelUtils.generateId();
+        ReservedCharValidator.validate(name);
         RealmModel realm = model.createRealm(id, name);
         realm.setName(name);
 
@@ -170,6 +172,8 @@ public class RealmManager {
         adminConsole.setPublicClient(true);
         adminConsole.setFullScopeAllowed(false);
         adminConsole.setProtocol(OIDCLoginProtocol.LOGIN_PROTOCOL);
+
+        adminConsole.setAttribute(OIDCConfigAttributes.PKCE_CODE_CHALLENGE_METHOD, "S256");
     }
 
     protected void setupAdminConsoleLocaleMapper(RealmModel realm) {
@@ -461,6 +465,8 @@ public class RealmManager {
                 audienceMapper.setProtocolMapper(AudienceResolveProtocolMapper.PROVIDER_ID);
 
                 accountConsoleClient.addProtocolMapper(audienceMapper);
+
+                accountConsoleClient.setAttribute(OIDCConfigAttributes.PKCE_CODE_CHALLENGE_METHOD, "S256");
             }
         }
     }
@@ -500,6 +506,7 @@ public class RealmManager {
             id = KeycloakModelUtils.generateId();
         }
         RealmModel realm = model.createRealm(id, rep.getRealm());
+        ReservedCharValidator.validate(rep.getRealm());
         realm.setName(rep.getRealm());
 
         // setup defaults
@@ -545,21 +552,7 @@ public class RealmManager {
         RepresentationToModel.importRealm(session, rep, realm, skipUserDependent);
         List<ClientRepresentation> clients = rep.getClients();
 
-        if (clients != null) {
-            ClientManager clientManager = new ClientManager(new RealmManager(session));
-
-            for (ClientRepresentation client : clients) {
-                ClientModel clientModel = realm.getClientById(client.getId());
-
-                if (clientModel.isServiceAccountsEnabled()) {
-                    clientManager.enableServiceAccount(clientModel);
-                }
-
-                if (Boolean.TRUE.equals(client.getAuthorizationServicesEnabled())) {
-                    RepresentationToModel.createResourceServer(clientModel, session, true);
-                }
-            }
-        }
+        setupClientServiceAccountsAndAuthorizationOnImport(rep, skipUserDependent);
 
         setupAdminConsoleLocaleMapper(realm);
 
@@ -731,4 +724,31 @@ public class RealmManager {
 
     }
 
+    public void setupClientServiceAccountsAndAuthorizationOnImport(RealmRepresentation rep, boolean skipUserDependent) {
+        List<ClientRepresentation> clients = rep.getClients();
+        // do not initialize services accounts or authorization if skipUserDependent
+        // they need the users and should be done at the end in dir import
+        if (clients != null && !skipUserDependent) {
+            ClientManager clientManager = new ClientManager(this);
+
+            for (ClientRepresentation client : clients) {
+                ClientModel clientModel = this.getRealmByName(rep.getRealm()).getClientById(client.getId());
+
+                UserModel serviceAccount = null;
+                if (clientModel.isServiceAccountsEnabled()) {
+                    serviceAccount = this.getSession().users().getServiceAccount(clientModel);
+                    if (serviceAccount == null) {
+                        // initialize the service account if the account is missing
+                        clientManager.enableServiceAccount(clientModel);
+                    }
+                }
+
+                if (Boolean.TRUE.equals(client.getAuthorizationServicesEnabled())) {
+                    // just create the default roles if the service account was missing in the import
+                    RepresentationToModel.createResourceServer(clientModel, session, serviceAccount == null);
+                    RepresentationToModel.importAuthorizationSettings(client, clientModel, session);
+                }
+            }
+        }
+    }
 }

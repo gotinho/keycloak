@@ -23,6 +23,7 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.keycloak.admin.client.resource.RealmResource;
+import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.credential.CredentialModel;
 import org.keycloak.events.Details;
 import org.keycloak.events.Errors;
@@ -33,8 +34,10 @@ import org.keycloak.models.Constants;
 import org.keycloak.models.PasswordPolicy;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
+import org.keycloak.models.credential.OTPCredentialModel;
 import org.keycloak.models.utils.TimeBasedOTP;
 import org.keycloak.representations.idm.ClientRepresentation;
+import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.EventRepresentation;
 import org.keycloak.representations.idm.RealmRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
@@ -63,6 +66,7 @@ import org.keycloak.testsuite.util.IdentityProviderBuilder;
 import org.keycloak.testsuite.util.OAuthClient;
 import org.keycloak.testsuite.util.RealmBuilder;
 import org.keycloak.testsuite.util.UIUtils;
+import org.keycloak.testsuite.util.URLUtils;
 import org.keycloak.testsuite.util.UserBuilder;
 import java.util.Collections;
 import org.openqa.selenium.By;
@@ -992,6 +996,47 @@ public class AccountFormServiceTest extends AbstractTestRealmKeycloakTest {
         assertFalse(errorPage.isCurrent());
     }
 
+
+    @Test
+    public void removeTotpAsDifferentUser() {
+        UserResource user1 = ApiUtil.findUserByUsernameId(testRealm(), "user-with-one-configured-otp");
+        CredentialRepresentation otpCredential = user1.credentials().stream()
+                .filter(credentialRep -> OTPCredentialModel.TYPE.equals(credentialRep.getType()))
+                .findFirst()
+                .get();
+
+        // Login as evil user (test-user@localhost) and setup TOTP
+        totpPage.open();
+        loginPage.login("test-user@localhost", "password");
+        Assert.assertTrue(totpPage.isCurrent());
+
+        totpPageSetup();
+
+        totpPage.configure(totp.generateTOTP(totpPage.getTotpSecret()));
+
+        Assert.assertEquals("Mobile authenticator configured.", profilePage.getSuccess());
+
+        String currentStateChecker = driver.findElement(By.id("stateChecker")).getAttribute("value");
+
+
+        // Try to delete TOTP of "user-with-one-configured-otp" by replace ID of the TOTP credential in the request
+        String currentURL = driver.getCurrentUrl();
+
+        String formParameters = "stateChecker=" + currentStateChecker
+                + "&submitAction=Delete"
+                + "&credentialId=" + otpCredential.getId();
+
+        URLUtils.sendPOSTRequestWithWebDriver(currentURL, formParameters);
+
+        // Assert credential of "user-with-one-configured-otp" was NOT deleted and is still present for the user
+        Assert.assertTrue(user1.credentials().stream()
+                .anyMatch(credentialRepresentation -> credentialRepresentation.getType().equals(OTPCredentialModel.TYPE)));
+
+        // Remove TOTP for "test-user" and logout
+        totpPage.removeTotp();
+        totpPage.logout();
+    }
+
     @Test
     public void changeProfileNoAccess() throws Exception {
         profilePage.open();
@@ -1006,15 +1051,23 @@ public class AccountFormServiceTest extends AbstractTestRealmKeycloakTest {
         Assert.assertEquals("No access", errorPage.getError());
     }
 
-    private void setEventsEnabled() {
+    private void setEventsEnabled(boolean eventsEnabled) {
         RealmRepresentation testRealm = testRealm().toRepresentation();
-        testRealm.setEventsEnabled(true);
+        testRealm.setEventsEnabled(eventsEnabled);
         testRealm().update(testRealm);
+    }
+
+
+    @Test
+    public void viewLogNotEnabled() {
+        logPage.open();
+        assertTrue(errorPage.isCurrent());
+        assertEquals("Page not found", errorPage.getError());
     }
 
     @Test
     public void viewLog() {
-        setEventsEnabled();
+        setEventsEnabled(true);
 
         List<EventRepresentation> expectedEvents = new LinkedList<>();
 
@@ -1053,6 +1106,8 @@ public class AccountFormServiceTest extends AbstractTestRealmKeycloakTest {
                 Assert.fail("Event not found " + e.getType());
             }
         }
+
+        setEventsEnabled(false);
     }
 
     @Test

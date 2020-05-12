@@ -23,8 +23,10 @@ import { Features } from '../../widgets/features';
 import { Msg } from '../../widgets/Msg';
 import { ContentPage } from '../ContentPage';
 import { ContentAlert } from '../ContentAlert';
+import { LocaleSelector } from '../../widgets/LocaleSelectors';
 
 declare const features: Features;
+declare const locale: string;
 
 interface AccountPageProps {
 }
@@ -34,6 +36,7 @@ interface FormFields {
     readonly firstName?: string;
     readonly lastName?: string;
     readonly email?: string;
+    attributes?: { locale?: [string] };
 }
 
 interface AccountPageState {
@@ -47,8 +50,7 @@ interface AccountPageState {
 export class AccountPage extends React.Component<AccountPageProps, AccountPageState> {
     private isRegistrationEmailAsUsername: boolean = features.isRegistrationEmailAsUsername;
     private isEditUserNameAllowed: boolean = features.isEditUserNameAllowed;
-
-    public state: AccountPageState = {
+    private readonly DEFAULT_STATE: AccountPageState = {
         errors: {
             username: '',
             firstName: '',
@@ -59,9 +61,12 @@ export class AccountPage extends React.Component<AccountPageProps, AccountPageSt
             username: '',
             firstName: '',
             lastName: '',
-            email: ''
+            email: '',
+            attributes: {}
         }
     };
+
+    public state: AccountPageState = this.DEFAULT_STATE;
 
     public constructor(props: AccountPageProps) {
         super(props);
@@ -71,8 +76,13 @@ export class AccountPage extends React.Component<AccountPageProps, AccountPageSt
     private fetchPersonalInfo(): void {
         AccountServiceClient.Instance.doGet("/")
             .then((response: AxiosResponse<FormFields>) => {
-                this.setState({ formFields: response.data });
-                console.log({ response });
+                this.setState(this.DEFAULT_STATE);
+                const formFields = response.data;
+                if (!formFields.attributes || !formFields.attributes.locale) {
+                    formFields.attributes = { locale: [locale] };
+                }
+
+                this.setState({...{ formFields: formFields }});
             });
     }
 
@@ -99,6 +109,9 @@ export class AccountPage extends React.Component<AccountPageProps, AccountPageSt
             AccountServiceClient.Instance.doPost("/", { data: reqData })
                 .then(() => { // to use response, say ((response: AxiosResponse<FormFields>) => {
                     ContentAlert.success('accountUpdatedMessage');
+                    if (locale !== this.state.formFields.attributes!.locale![0]) {
+                        window.location.reload();
+                    }
                 });
         } else {
             const formData = new FormData(form);
@@ -127,7 +140,7 @@ export class AccountPage extends React.Component<AccountPageProps, AccountPageSt
                             fieldId="user-name"
                             helperTextInvalid={this.state.errors.username}
                             isValid={this.state.errors.username === ''}
-                            >
+                        >
                             {this.isEditUserNameAllowed && <this.UsernameInput />}
                             {!this.isEditUserNameAllowed && <this.RestrictedUsernameInput />}
                         </FormGroup>
@@ -144,6 +157,7 @@ export class AccountPage extends React.Component<AccountPageProps, AccountPageSt
                             type="email"
                             id="email-address"
                             name="email"
+                            maxLength={254}
                             value={fields.email}
                             onChange={this.handleChange}
                             isValid={this.state.errors.email === ''}
@@ -162,6 +176,7 @@ export class AccountPage extends React.Component<AccountPageProps, AccountPageSt
                             type="text"
                             id="first-name"
                             name="firstName"
+                            maxLength={254}
                             value={fields.firstName}
                             onChange={this.handleChange}
                             isValid={this.state.errors.firstName === ''}
@@ -180,12 +195,26 @@ export class AccountPage extends React.Component<AccountPageProps, AccountPageSt
                             type="text"
                             id="last-name"
                             name="lastName"
+                            maxLength={254}
                             value={fields.lastName}
                             onChange={this.handleChange}
                             isValid={this.state.errors.lastName === ''}
                         >
                         </TextInput>
                     </FormGroup>
+                    {features.isInternationalizationEnabled && <FormGroup 
+                        label={Msg.localize('selectLocale')}
+                        isRequired
+                        fieldId="locale"
+                    >
+                        <LocaleSelector id="locale-selector"
+                            value={fields.attributes!.locale || ''}
+                            onChange={value => this.setState({
+                                errors: this.state.errors,
+                                formFields: { ...this.state.formFields, attributes: { ...this.state.formFields.attributes, locale: [value] }}
+                            })}
+                        />
+                    </FormGroup>}
                     <ActionGroup>
                         <Button
                             type="submit"
@@ -214,6 +243,7 @@ export class AccountPage extends React.Component<AccountPageProps, AccountPageSt
             type="text"
             id="user-name"
             name="username"
+            maxLength={254}
             value={this.state.formFields.username}
             onChange={this.handleChange}
             isValid={this.state.errors.username === ''}

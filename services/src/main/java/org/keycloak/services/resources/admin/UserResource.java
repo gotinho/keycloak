@@ -195,10 +195,16 @@ public class UserResource {
     }
 
     public static void updateUserFromRep(UserModel user, UserRepresentation rep, Set<String> attrsToRemove, RealmModel realm, KeycloakSession session, boolean removeMissingRequiredActions) {
-        if (rep.getUsername() != null && realm.isEditUsernameAllowed()) {
+        if (rep.getUsername() != null && realm.isEditUsernameAllowed() && !realm.isRegistrationEmailAsUsername()) {
             user.setUsername(rep.getUsername());
         }
-        if (rep.getEmail() != null) user.setEmail(rep.getEmail());
+        if (rep.getEmail() != null) {
+            String email = rep.getEmail();
+            user.setEmail(email);
+            if(realm.isRegistrationEmailAsUsername()) {
+                user.setUsername(email);
+            }
+        }
         if (rep.getEmail() == "") user.setEmail(null);
         if (rep.getFirstName() != null) user.setFirstName(rep.getFirstName());
         if (rep.getLastName() != null) user.setLastName(rep.getLastName());
@@ -236,7 +242,10 @@ public class UserResource {
 
         if (rep.getAttributes() != null) {
             for (Map.Entry<String, List<String>> attr : rep.getAttributes().entrySet()) {
-                user.setAttribute(attr.getKey(), attr.getValue());
+                List<String> currentValue = user.getAttribute(attr.getKey());
+                if (currentValue == null || currentValue.size() != attr.getValue().size() || !currentValue.containsAll(attr.getValue())) {
+                    user.setAttribute(attr.getKey(), attr.getValue());
+                }
             }
 
             for (String attr : attrsToRemove) {
@@ -305,7 +314,7 @@ public class UserResource {
         userSession.setNote(IMPERSONATOR_USERNAME.toString(), impersonator);
 
         AuthenticationManager.createLoginCookie(session, realm, userSession.getUser(), userSession, session.getContext().getUri(), clientConnection);
-        URI redirect = AccountFormService.accountServiceApplicationPage(session.getContext().getUri()).build(realm.getName());
+        URI redirect = AccountFormService.accountServiceBaseUrl(session.getContext().getUri()).build(realm.getName());
         Map<String, Object> result = new HashMap<>();
         result.put("sameRealm", sameRealm);
         result.put("redirect", redirect.toString());
@@ -575,7 +584,12 @@ public class UserResource {
     @PUT
     @Consumes(MediaType.APPLICATION_JSON)
     public void disableCredentialType(List<String> credentialTypes) {
-        throw new NotSupportedException("Not supported to disable credentials. Only credentials removal is supported");
+        auth.users().requireManage(user);
+        if (credentialTypes == null) return;
+        for (String type : credentialTypes) {
+            session.userCredentialManager().disableCredentialType(realm, user, type);
+
+        }
     }
 
     /**
@@ -606,7 +620,12 @@ public class UserResource {
             throw new ErrorResponseException(e.getMessage(), MessageFormat.format(messages.getProperty(e.getMessage(), e.getMessage()), e.getParameters()),
                     Status.BAD_REQUEST);
         }
-        if (cred.isTemporary() != null && cred.isTemporary()) user.addRequiredAction(UserModel.RequiredAction.UPDATE_PASSWORD);
+        if (cred.isTemporary() != null && cred.isTemporary()) {
+            user.addRequiredAction(UserModel.RequiredAction.UPDATE_PASSWORD);
+        } else {
+            // Remove a potentially existing UPDATE_PASSWORD action when explicitly assigning a non-temporary password.
+            user.removeRequiredAction(UserModel.RequiredAction.UPDATE_PASSWORD);
+        }
 
         adminEvent.operation(OperationType.ACTION).resourcePath(session.getContext().getUri()).success();
     }
@@ -651,6 +670,12 @@ public class UserResource {
     @NoCache
     public void removeCredential(final @PathParam("credentialId") String credentialId) {
         auth.users().requireManage(user);
+        CredentialModel credential = session.userCredentialManager().getStoredCredentialById(realm, user, credentialId);
+        if (credential == null) {
+            // we do this to make sure somebody can't phish ids
+            if (auth.users().canQuery()) throw new NotFoundException("Credential not found");
+            else throw new ForbiddenException();
+        }
         session.userCredentialManager().removeStoredCredential(realm, user, credentialId);
         adminEvent.operation(OperationType.ACTION).resourcePath(session.getContext().getUri()).success();
     }
@@ -666,7 +691,7 @@ public class UserResource {
         CredentialModel credential = session.userCredentialManager().getStoredCredentialById(realm, user, credentialId);
         if (credential == null) {
             // we do this to make sure somebody can't phish ids
-            if (auth.users().canQuery()) throw new NotFoundException("User not found");
+            if (auth.users().canQuery()) throw new NotFoundException("Credential not found");
             else throw new ForbiddenException();
         }
         session.userCredentialManager().updateCredentialLabel(realm, user, credentialId, userLabel);
@@ -694,7 +719,7 @@ public class UserResource {
         CredentialModel credential = session.userCredentialManager().getStoredCredentialById(realm, user, credentialId);
         if (credential == null) {
             // we do this to make sure somebody can't phish ids
-            if (auth.users().canQuery()) throw new NotFoundException("User not found");
+            if (auth.users().canQuery()) throw new NotFoundException("Credential not found");
             else throw new ForbiddenException();
         }
         session.userCredentialManager().moveCredentialTo(realm, user, credentialId, newPreviousCredentialId);
@@ -808,7 +833,7 @@ public class UserResource {
 
             adminEvent.operation(OperationType.ACTION).resourcePath(session.getContext().getUri()).success();
 
-            return Response.ok().build();
+            return Response.noContent().build();
         } catch (EmailException e) {
             ServicesLogger.LOGGER.failedToSendActionsEmail(e);
             return ErrorResponse.error("Failed to send execute actions email", Status.INTERNAL_SERVER_ERROR);

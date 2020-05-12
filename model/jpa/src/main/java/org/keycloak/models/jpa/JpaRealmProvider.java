@@ -45,6 +45,7 @@ import javax.persistence.TypedQuery;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import org.keycloak.models.ModelException;
 
 
 /**
@@ -120,7 +121,6 @@ public class JpaRealmProvider implements RealmProvider {
             RealmModel realm = session.realms().getRealm(id);
             if (realm != null) realms.add(realm);
             em.flush();
-            em.clear();
         }
         return realms;
     }
@@ -364,6 +364,10 @@ public class JpaRealmProvider implements RealmProvider {
             container.removeDefaultRoles(role.getName());
         }
         RoleEntity roleEntity = em.getReference(RoleEntity.class, role.getId());
+        if (roleEntity == null || !roleEntity.getRealmId().equals(realm.getId())) {
+            // Throw model exception to ensure transaction rollback and revert previous operations (removing default roles) as well
+            throw new ModelException("Role not found or trying to remove role from incorrect realm");
+        }
         String compositeRoleTable = JpaUtils.getTableNameForNativeQuery("COMPOSITE_ROLE", em);
         em.createNativeQuery("delete from " + compositeRoleTable + " where CHILD_ROLE = :role").setParameter("role", roleEntity).executeUpdate();
         realm.getClients().forEach(c -> c.deleteScopeMapping(role));
@@ -434,15 +438,16 @@ public class JpaRealmProvider implements RealmProvider {
 
     @Override
     public Long getGroupsCount(RealmModel realm, Boolean onlyTopGroups) {
-        String query = "getGroupCount";
         if(Objects.equals(onlyTopGroups, Boolean.TRUE)) {
-            query = "getTopLevelGroupCount";
+            return em.createNamedQuery("getTopLevelGroupCount", Long.class)
+                    .setParameter("realm", realm.getId())
+                    .setParameter("parent", GroupEntity.TOP_PARENT_ID)
+                    .getSingleResult();
+        } else {
+            return em.createNamedQuery("getGroupCount", Long.class)
+                    .setParameter("realm", realm.getId())
+                    .getSingleResult();
         }
-        Long count = em.createNamedQuery(query, Long.class)
-                .setParameter("realm", realm.getId())
-                .getSingleResult();
-
-        return count;
     }
 
     @Override
@@ -481,7 +486,7 @@ public class JpaRealmProvider implements RealmProvider {
         RealmEntity ref = em.getReference(RealmEntity.class, realm.getId());
 
         return ref.getGroups().stream()
-                .filter(g -> g.getParent() == null)
+                .filter(g -> GroupEntity.TOP_PARENT_ID.equals(g.getParentId()))
                 .map(g -> session.realms().getGroupById(g.getId(), realm))
                 .sorted(Comparator.comparing(GroupModel::getName))
                 .collect(Collectors.collectingAndThen(
@@ -492,6 +497,7 @@ public class JpaRealmProvider implements RealmProvider {
     public List<GroupModel> getTopLevelGroups(RealmModel realm, Integer first, Integer max) {
         List<String> groupIds =  em.createNamedQuery("getTopLevelGroupIds", String.class)
                 .setParameter("realm", realm.getId())
+                .setParameter("parent", GroupEntity.TOP_PARENT_ID)
                 .setFirstResult(first)
                     .setMaxResults(max)
                     .getResultList();
@@ -502,9 +508,7 @@ public class JpaRealmProvider implements RealmProvider {
                 list.add(group);
             }
         }
-
-        list.sort(Comparator.comparing(GroupModel::getName));
-
+        // no need to sort, it's sorted at database level
         return Collections.unmodifiableList(list);
     }
 
@@ -554,19 +558,19 @@ public class JpaRealmProvider implements RealmProvider {
     }
 
     @Override
-    public GroupModel createGroup(RealmModel realm, String name) {
-        String id = KeycloakModelUtils.generateId();
-        return createGroup(realm, id, name);
-    }
-
-    @Override
-    public GroupModel createGroup(RealmModel realm, String id, String name) {
-        if (id == null) id = KeycloakModelUtils.generateId();
+    public GroupModel createGroup(RealmModel realm, String id, String name, GroupModel toParent) {
+        if (id == null) {
+            id = KeycloakModelUtils.generateId();
+        } else if (GroupEntity.TOP_PARENT_ID.equals(id)) {
+            // maybe it's impossible but better ensure this doesn't happen
+            throw new ModelException("The ID of the new group is equals to the tag used for top level groups");
+        }
         GroupEntity groupEntity = new GroupEntity();
         groupEntity.setId(id);
         groupEntity.setName(name);
         RealmEntity realmEntity = em.getReference(RealmEntity.class, realm.getId());
         groupEntity.setRealm(realmEntity);
+        groupEntity.setParentId(toParent == null? GroupEntity.TOP_PARENT_ID : toParent.getId());
         em.persist(groupEntity);
         em.flush();
         realmEntity.getGroups().add(groupEntity);
@@ -786,20 +790,18 @@ public class JpaRealmProvider implements RealmProvider {
     @Override
     public ClientInitialAccessModel getClientInitialAccessModel(RealmModel realm, String id) {
         ClientInitialAccessEntity entity = em.find(ClientInitialAccessEntity.class, id);
-        if (entity == null) {
-            return null;
-        } else {
-            return entityToModel(entity);
-        }
+        if (entity == null) return null;
+        if (!entity.getRealm().getId().equals(realm.getId())) return null;
+        return entityToModel(entity);
     }
 
     @Override
     public void removeClientInitialAccessModel(RealmModel realm, String id) {
         ClientInitialAccessEntity entity = em.find(ClientInitialAccessEntity.class, id, LockModeType.PESSIMISTIC_WRITE);
-        if (entity != null) {
-            em.remove(entity);
-            em.flush();
-        }
+        if (entity == null) return;
+        if (!entity.getRealm().getId().equals(realm.getId())) return;
+        em.remove(entity);
+        em.flush();
     }
 
     @Override

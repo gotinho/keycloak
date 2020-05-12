@@ -1993,8 +1993,8 @@ module.config([ '$routeProvider', function($routeProvider) {
                 realm : function(RealmLoader) {
                     return RealmLoader();
                 },
-                serverInfo : function(ServerInfo) {
-                    return ServerInfo.delay;
+                serverInfo : function(ServerInfoLoader) {
+                    return ServerInfoLoader();
                 }
             },
             controller : 'RealmOtpPolicyCtrl'
@@ -2005,8 +2005,8 @@ module.config([ '$routeProvider', function($routeProvider) {
                 realm : function(RealmLoader) {
                     return RealmLoader();
                 },
-                serverInfo : function(ServerInfo) {
-                    return ServerInfo.delay;
+                serverInfo : function(ServerInfoLoader) {
+                    return ServerInfoLoader();
                 }
             },
             controller : 'RealmWebAuthnPolicyCtrl'
@@ -2017,8 +2017,8 @@ module.config([ '$routeProvider', function($routeProvider) {
                 realm : function(RealmLoader) {
                     return RealmLoader();
                 },
-                serverInfo : function(ServerInfo) {
-                    return ServerInfo.delay;
+                serverInfo : function(ServerInfoLoader) {
+                    return ServerInfoLoader();
                 }
             },
             controller : 'RealmWebAuthnPasswordlessPolicyCtrl'
@@ -2379,6 +2379,23 @@ module.directive('kcEnter', function() {
                 });
 
                 event.preventDefault();
+            }
+        });
+    };
+});
+
+// Don't allow URI reserved characters
+module.directive('kcNoReservedChars', function (Notifications, $translate) {
+    return function($scope, element) {
+        element.bind("keypress", function(event) {
+            var keyPressed = String.fromCharCode(event.which || event.keyCode || 0);
+            
+            // ] and ' can not be used inside a character set on POSIX and GNU
+            if (keyPressed.match('[:/?#[@!$&()*+,;=]') || keyPressed === ']' || keyPressed === '\'') {
+                event.preventDefault();
+                $scope.$apply(function() {
+                    Notifications.warn($translate.instant('key-not-allowed-here', {character: keyPressed}));
+                });
             }
         });
     };
@@ -2773,14 +2790,18 @@ module.controller('ProviderConfigCtrl', function ($modal, $scope, $route, Compon
         })
     }
 
-    $scope.changeClient = function(configName, config, client) {
+    $scope.changeClient = function(configName, config, client, multivalued) {
         if (!client || !client.id) {
             config[configName] = null;
             $scope.selectedClient = null;
             return;
         }
         $scope.selectedClient = client;
-        config[configName] = client.clientId;
+        if (multivalued) {
+            config[configName][0] = client.clientId;
+        } else {
+            config[configName] = client.clientId;
+        }
     };
 
     ComponentUtils.convertAllMultivaluedStringValuesToList($scope.properties, $scope.config);

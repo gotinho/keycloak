@@ -149,6 +149,9 @@ public class ExportImportTest extends AbstractKeycloakTest {
 
         testFullExportImport();
 
+        RealmResource testRealmRealm = adminClient.realm("test-realm");
+        ExportImportUtil.assertDataImportedInRealm(adminClient, testingClient, testRealmRealm.toRepresentation());
+
         // There should be 6 files in target directory (3 realm, 3 user)
         assertEquals(6, new File(targetDirPath).listFiles().length);
     }
@@ -164,6 +167,9 @@ public class ExportImportTest extends AbstractKeycloakTest {
         testingClient.testing().exportImport().setUsersPerFile(5);
 
         testRealmExportImport();
+
+        RealmResource testRealmRealm = adminClient.realm("test-realm");
+        ExportImportUtil.assertDataImportedInRealm(adminClient, testingClient, testRealmRealm.toRepresentation());
 
         // There should be 4 files in target directory (1 realm, 12 users, 5 users per file)
         // (+ additional user service-account-test-app-authz that should not be there ???)
@@ -315,6 +321,7 @@ public class ExportImportTest extends AbstractKeycloakTest {
         Map<String, List<String>> roleAttributes = adminClient.realm("test").roles().get("attribute-role").toRepresentation().getAttributes();
         String testAppId = adminClient.realm("test").clients().findByClientId("test-app").get(0).getId();
         String sampleClientRoleId = adminClient.realm("test").clients().get(testAppId).roles().get("sample-client-role").toRepresentation().getId();
+        String sampleClientRoleAttribute = adminClient.realm("test").clients().get(testAppId).roles().get("sample-client-role").toRepresentation().getAttributes().get("sample-client-role-attribute").get(0);
 
         // Delete some realm (and some data in admin realm)
         adminClient.realm("test").remove();
@@ -364,6 +371,9 @@ public class ExportImportTest extends AbstractKeycloakTest {
 
         String importedSampleClientRoleId = adminClient.realm("test").clients().get(testAppId).roles().get("sample-client-role").toRepresentation().getId();
         assertEquals(sampleClientRoleId, importedSampleClientRoleId);
+
+        String importedSampleClientRoleAttribute = adminClient.realm("test").clients().get(testAppId).roles().get("sample-client-role").toRepresentation().getAttributes().get("sample-client-role-attribute").get(0);
+        assertEquals(sampleClientRoleAttribute, importedSampleClientRoleAttribute);
 
         checkEventsConfig(adminClient.realm("test").getRealmEventsConfig());
     }

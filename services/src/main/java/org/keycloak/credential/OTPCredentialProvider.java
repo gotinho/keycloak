@@ -75,8 +75,8 @@ public class OTPCredentialProvider implements CredentialProvider<OTPCredentialMo
     }
 
     @Override
-    public void deleteCredential(RealmModel realm, UserModel user, String credentialId) {
-        getCredentialStore().removeStoredCredential(realm, user, credentialId);
+    public boolean deleteCredential(RealmModel realm, UserModel user, String credentialId) {
+        return getCredentialStore().removeStoredCredential(realm, user, credentialId);
     }
 
     @Override
@@ -142,7 +142,7 @@ public class OTPCredentialProvider implements CredentialProvider<OTPCredentialMo
     }
 
     @Override
-    public CredentialTypeMetadata getCredentialTypeMetadata() {
+    public CredentialTypeMetadata getCredentialTypeMetadata(CredentialTypeMetadataContext metadataContext) {
         return CredentialTypeMetadata.builder()
                 .type(getType())
                 .category(CredentialTypeMetadata.Category.TWO_FACTOR)

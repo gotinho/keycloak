@@ -196,6 +196,12 @@ public interface RealmModel extends RoleContainerModel {
     int getOfflineSessionMaxLifespan();
     void setOfflineSessionMaxLifespan(int seconds);
 
+    int getClientSessionIdleTimeout();
+    void setClientSessionIdleTimeout(int seconds);
+
+    int getClientSessionMaxLifespan();
+    void setClientSessionMaxLifespan(int seconds);
+
     void setAccessTokenLifespan(int seconds);
 
     int getAccessTokenLifespanForImplicitFlow();
@@ -471,8 +477,19 @@ public interface RealmModel extends RoleContainerModel {
     String getDefaultLocale();
     void setDefaultLocale(String locale);
 
-    GroupModel createGroup(String name);
-    GroupModel createGroup(String id, String name);
+    default GroupModel createGroup(String name) {
+        return createGroup(null, name, null);
+    };
+
+    default GroupModel createGroup(String id, String name) {
+        return createGroup(id, name, null);
+    };
+
+    default GroupModel createGroup(String name, GroupModel toParent) {
+        return createGroup(null, name, toParent);
+    };
+
+    GroupModel createGroup(String id, String name, GroupModel toParent);
 
     GroupModel getGroupById(String id);
     List<GroupModel> getGroups();

@@ -127,6 +127,10 @@ div.kc-logo-text span {
     text-align: center;
 }
 
+#kc-webauthn-settings-form{
+    padding-top:8px;
+}
+
 /* #kc-content-wrapper {
     overflow-y: hidden;
 } */
@@ -509,6 +513,10 @@ a.zocial  {
 
 .login-pf-page .list-view-pf-description {
     width: 100%;
+}
+
+.login-pf-page .card-pf{
+  margin-bottom: 10px;
 }
 
 #kc-form-login div.form-group:last-of-type,

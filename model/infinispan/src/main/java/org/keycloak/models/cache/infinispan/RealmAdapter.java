@@ -481,6 +481,32 @@ public class RealmAdapter implements CachedRealmModel {
     }
 
     @Override
+    public int getClientSessionIdleTimeout() {
+        if (isUpdated())
+            return updated.getClientSessionIdleTimeout();
+        return cached.getClientSessionIdleTimeout();
+    }
+
+    @Override
+    public void setClientSessionIdleTimeout(int seconds) {
+        getDelegateForUpdate();
+        updated.setClientSessionIdleTimeout(seconds);
+    }
+
+    @Override
+    public int getClientSessionMaxLifespan() {
+        if (isUpdated())
+            return updated.getClientSessionMaxLifespan();
+        return cached.getClientSessionMaxLifespan();
+    }
+
+    @Override
+    public void setClientSessionMaxLifespan(int seconds) {
+        getDelegateForUpdate();
+        updated.setClientSessionMaxLifespan(seconds);
+    }
+
+    @Override
     public int getAccessTokenLifespan() {
         if (isUpdated()) return updated.getAccessTokenLifespan();
         return cached.getAccessTokenLifespan();
@@ -1352,13 +1378,8 @@ public class RealmAdapter implements CachedRealmModel {
     }
 
     @Override
-    public GroupModel createGroup(String name) {
-        return cacheSession.createGroup(this, name);
-    }
-
-    @Override
-    public GroupModel createGroup(String id, String name) {
-        return cacheSession.createGroup(this, id, name);
+    public GroupModel createGroup(String id, String name, GroupModel toParent) {
+        return cacheSession.createGroup(this, id, name, toParent);
     }
 
     @Override

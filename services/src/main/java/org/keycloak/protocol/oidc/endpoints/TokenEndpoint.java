@@ -33,6 +33,7 @@ import org.keycloak.broker.provider.ExchangeTokenToIdentityProviderToken;
 import org.keycloak.broker.provider.IdentityProvider;
 import org.keycloak.broker.provider.IdentityProviderFactory;
 import org.keycloak.broker.provider.IdentityProviderMapper;
+import org.keycloak.broker.provider.IdentityProviderMapperSyncModeDelegate;
 import org.keycloak.common.ClientConnection;
 import org.keycloak.common.Profile;
 import org.keycloak.common.constants.ServiceAccountConstants;
@@ -537,13 +538,11 @@ public class TokenEndpoint {
             String adapterSessionHost = formParams.getFirst(AdapterConstants.CLIENT_SESSION_HOST);
             logger.debugf("Adapter Session '%s' saved in ClientSession for client '%s'. Host is '%s'", adapterSessionId, client.getClientId(), adapterSessionHost);
 
-            event.detail(AdapterConstants.CLIENT_SESSION_STATE, adapterSessionId);
             String oldClientSessionState = clientSession.getNote(AdapterConstants.CLIENT_SESSION_STATE);
             if (!adapterSessionId.equals(oldClientSessionState)) {
                 clientSession.setNote(AdapterConstants.CLIENT_SESSION_STATE, adapterSessionId);
             }
 
-            event.detail(AdapterConstants.CLIENT_SESSION_HOST, adapterSessionHost);
             String oldClientSessionHost = clientSession.getNote(AdapterConstants.CLIENT_SESSION_HOST);
             if (!Objects.equals(adapterSessionHost, oldClientSessionHost)) {
                 clientSession.setNote(AdapterConstants.CLIENT_SESSION_HOST, adapterSessionHost);
@@ -569,7 +568,7 @@ public class TokenEndpoint {
             event.error(Errors.CONSENT_DENIED);
             throw new CorsErrorResponseException(cors, OAuthErrorException.INVALID_CLIENT, "Client requires user consent", Response.Status.BAD_REQUEST);
         }
-        String scope = formParams.getFirst(OAuth2Constants.SCOPE);
+        String scope = getRequestedScopes();
 
         RootAuthenticationSessionModel rootAuthSession = new AuthenticationSessionManager(session).createAuthenticationSession(realm, false);
         AuthenticationSessionModel authSession = rootAuthSession.createAuthenticationSession(client);
@@ -659,7 +658,7 @@ public class TokenEndpoint {
             throw new CorsErrorResponseException(cors, OAuthErrorException.INVALID_REQUEST, "User '" + clientUsername + "' disabled", Response.Status.UNAUTHORIZED);
         }
 
-        String scope = formParams.getFirst(OAuth2Constants.SCOPE);
+        String scope = getRequestedScopes();
 
         RootAuthenticationSessionModel rootAuthSession = new AuthenticationSessionManager(session).createAuthenticationSession(realm, false);
         AuthenticationSessionModel authSession = rootAuthSession.createAuthenticationSession(client);
@@ -698,6 +697,18 @@ public class TokenEndpoint {
         event.success();
 
         return cors.builder(Response.ok(res, MediaType.APPLICATION_JSON_TYPE)).build();
+    }
+
+    private String getRequestedScopes() {
+        String scope = formParams.getFirst(OAuth2Constants.SCOPE);
+
+        if (!TokenManager.isValidScope(scope, client)) {
+            event.error(Errors.INVALID_REQUEST);
+            throw new CorsErrorResponseException(cors, OAuthErrorException.INVALID_SCOPE, "Invalid scopes: " + scope,
+                    Status.BAD_REQUEST);
+        }
+
+        return scope;
     }
 
     public Response tokenExchange() {
@@ -1067,7 +1078,7 @@ public class TokenEndpoint {
                 KeycloakSessionFactory sessionFactory = session.getKeycloakSessionFactory();
                 for (IdentityProviderMapperModel mapper : mappers) {
                     IdentityProviderMapper target = (IdentityProviderMapper)sessionFactory.getProviderFactory(IdentityProviderMapper.class, mapper.getIdentityProviderMapper());
-                    target.updateBrokeredUser(session, realm, user, mapper, context);
+                    IdentityProviderMapperSyncModeDelegate.delegateUpdateBrokeredUser(session, realm, user, mapper, context, target);
                 }
             }
         }

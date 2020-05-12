@@ -158,6 +158,32 @@ public class RealmTest extends AbstractAdminTest {
         Assert.assertNames(adminClient.realms().findAll(), "master", AuthRealm.TEST, REALM_NAME);
     }
 
+    @Test(expected = BadRequestException.class)
+    public void createRealmRejectReservedChar() {
+        RealmRepresentation rep = new RealmRepresentation();
+        rep.setRealm("new-re;alm");
+        adminClient.realms().create(rep);
+    }
+
+    /**
+     * Checks attributes exposed as fields are not also included as attributes
+     */
+    @Test
+    public void excludesFieldsFromAttributes() {
+        RealmRepresentation rep = new RealmRepresentation();
+        rep.setRealm("attributes");
+
+        adminClient.realms().create(rep);
+
+        try {
+            RealmRepresentation rep2 = adminClient.realm("attributes").toRepresentation();
+
+            assertTrue("Attributes was expected to be empty, but was: " + String.join(", ", rep2.getAttributes().keySet()), rep2.getAttributes().isEmpty());
+        } finally {
+            adminClient.realm("attributes").remove();
+        }
+    }
+
     @Test
     public void smtpPasswordSecret() {
         RealmRepresentation rep = RealmBuilder.create().testEventListener().testMail().build();
@@ -360,6 +386,13 @@ public class RealmTest extends AbstractAdminTest {
         checkRealmEventsConfigRepresentation(repOrig, actual);
     }
 
+    @Test(expected = BadRequestException.class)
+    public void updateRealmWithReservedCharInName() {
+        RealmRepresentation rep = realm.toRepresentation();
+        rep.setRealm("fo#o");
+        realm.update(rep);
+    }
+    
     @Test
     public void updateRealm() {
         // first change
@@ -587,6 +620,10 @@ public class RealmTest extends AbstractAdminTest {
         if (realm.getSsoSessionMaxLifespan() != null) assertEquals(realm.getSsoSessionMaxLifespan(), storedRealm.getSsoSessionMaxLifespan());
         if (realm.getSsoSessionIdleTimeoutRememberMe() != null) Assert.assertEquals(realm.getSsoSessionIdleTimeoutRememberMe(), storedRealm.getSsoSessionIdleTimeoutRememberMe());
         if (realm.getSsoSessionMaxLifespanRememberMe() != null) Assert.assertEquals(realm.getSsoSessionMaxLifespanRememberMe(), storedRealm.getSsoSessionMaxLifespanRememberMe());
+        if (realm.getClientSessionIdleTimeout() != null)
+            Assert.assertEquals(realm.getClientSessionIdleTimeout(), storedRealm.getClientSessionIdleTimeout());
+        if (realm.getClientSessionMaxLifespan() != null)
+            Assert.assertEquals(realm.getClientSessionMaxLifespan(), storedRealm.getClientSessionMaxLifespan());
         if (realm.getRequiredCredentials() != null) {
             assertNotNull(storedRealm.getRequiredCredentials());
             for (String cred : realm.getRequiredCredentials()) {

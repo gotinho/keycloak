@@ -104,6 +104,67 @@ public class ClientTest extends AbstractAdminTest {
     }
 
     @Test
+    public void createClientValidation() {
+        ClientRepresentation rep = new ClientRepresentation();
+        rep.setClientId("my-app");
+        rep.setDescription("my-app description");
+        rep.setEnabled(true);
+
+        rep.setRootUrl("invalid");
+        createClientExpectingValidationError(rep, "Invalid URL in rootUrl");
+
+        rep.setRootUrl(null);
+        rep.setBaseUrl("invalid");
+        createClientExpectingValidationError(rep, "Invalid URL in baseUrl");
+    }
+
+    @Test
+    public void updateClientValidation() {
+        ClientRepresentation rep = createClient();
+
+        rep.setClientId("my-app");
+        rep.setDescription("my-app description");
+        rep.setEnabled(true);
+
+        rep.setRootUrl("invalid");
+        updateClientExpectingValidationError(rep, "Invalid URL in rootUrl");
+
+        rep.setRootUrl(null);
+        rep.setBaseUrl("invalid");
+        updateClientExpectingValidationError(rep, "Invalid URL in baseUrl");
+
+        ClientRepresentation stored = realm.clients().get(rep.getId()).toRepresentation();
+        assertNull(stored.getRootUrl());
+        assertNull(stored.getBaseUrl());
+    }
+
+    private void createClientExpectingValidationError(ClientRepresentation rep, String expectedError) {
+        Response response = realm.clients().create(rep);
+
+        assertEquals(400, response.getStatus());
+        OAuth2ErrorRepresentation error = response.readEntity(OAuth2ErrorRepresentation.class);
+        assertEquals("invalid_input", error.getError());
+        assertEquals(expectedError, error.getErrorDescription());
+
+        assertNull(response.getLocation());
+
+        response.close();
+    }
+
+    private void updateClientExpectingValidationError(ClientRepresentation rep, String expectedError) {
+        try {
+            realm.clients().get(rep.getId()).update(rep);
+            fail("Expected exception");
+        } catch (BadRequestException e) {
+            Response response = e.getResponse();
+            assertEquals(400, response.getStatus());
+            OAuth2ErrorRepresentation error = response.readEntity(OAuth2ErrorRepresentation.class);
+            assertEquals("invalid_input", error.getError());
+            assertEquals(expectedError, error.getErrorDescription());
+        }
+    }
+
+    @Test
     public void removeClient() {
         String id = createClient().getId();
 
@@ -361,6 +422,16 @@ public class ClientTest extends AbstractAdminTest {
         return client;
     }
 
+    @Test (expected = BadRequestException.class)
+    public void testAddNodeWithReservedCharacter() {
+        testingClient.testApp().clearAdminActions();
+
+        ClientRepresentation client = createAppClient();
+        String id = client.getId();
+
+        realm.clients().get(id).registerNode(Collections.singletonMap("node", "foo#"));
+    }
+    
     @Test
     public void nodes() {
         testingClient.testApp().clearAdminActions();
@@ -554,6 +625,48 @@ public class ClientTest extends AbstractAdminTest {
         }
     }
 
+    @Test
+    @AuthServerContainerExclude(AuthServer.REMOTE)
+    public void updateClientWithProtocolMapper() {
+        ClientRepresentation rep = new ClientRepresentation();
+        rep.setClientId("my-app");
+
+        ProtocolMapperRepresentation fooMapper = new ProtocolMapperRepresentation();
+        fooMapper.setName("foo");
+        fooMapper.setProtocol("openid-connect");
+        fooMapper.setProtocolMapper("oidc-hardcoded-claim-mapper");
+        rep.setProtocolMappers(Collections.singletonList(fooMapper));
+
+        Response response = realm.clients().create(rep);
+        response.close();
+        String id = ApiUtil.getCreatedId(response);
+        getCleanup().addClientUuid(id);
+
+        ClientResource clientResource = realm.clients().get(id);
+        assertNotNull(clientResource);
+        ClientRepresentation client = clientResource.toRepresentation();
+        List<ProtocolMapperRepresentation> protocolMappers = client.getProtocolMappers();
+        assertEquals(1, protocolMappers.size());
+        ProtocolMapperRepresentation mapper = protocolMappers.get(0);
+        assertEquals("foo", mapper.getName());
+
+        ClientRepresentation newClient = new ClientRepresentation();
+        newClient.setId(client.getId());
+        newClient.setClientId(client.getClientId());
+
+        ProtocolMapperRepresentation barMapper = new ProtocolMapperRepresentation();
+        barMapper.setName("bar");
+        barMapper.setProtocol("openid-connect");
+        barMapper.setProtocolMapper("oidc-hardcoded-role-mapper");
+        protocolMappers.add(barMapper);
+        newClient.setProtocolMappers(protocolMappers);
+
+        realm.clients().get(client.getId()).update(newClient);
+
+        ClientRepresentation storedClient = realm.clients().get(client.getId()).toRepresentation();
+        assertClient(client, storedClient);
+    }
+
     public static void assertClient(ClientRepresentation client, ClientRepresentation storedClient) {
         if (client.getClientId() != null) Assert.assertEquals(client.getClientId(), storedClient.getClientId());
         if (client.getName() != null) Assert.assertEquals(client.getName(), storedClient.getName());
@@ -608,6 +721,18 @@ public class ClientTest extends AbstractAdminTest {
             for (String val : storedClient.getWebOrigins()) {
                 storedSet.add(val);
             }
+
+            Assert.assertEquals(set, storedSet);
+        }
+
+        List<ProtocolMapperRepresentation> protocolMappers = client.getProtocolMappers();
+        if(protocolMappers != null){
+            Set<String> set = protocolMappers.stream()
+                    .map(ProtocolMapperRepresentation::getName)
+                    .collect(Collectors.toSet());
+            Set<String> storedSet = storedClient.getProtocolMappers().stream()
+                    .map(ProtocolMapperRepresentation::getName)
+                    .collect(Collectors.toSet());
 
             Assert.assertEquals(set, storedSet);
         }

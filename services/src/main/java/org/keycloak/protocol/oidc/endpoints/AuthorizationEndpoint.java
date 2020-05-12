@@ -26,6 +26,7 @@ import org.keycloak.events.Details;
 import org.keycloak.events.Errors;
 import org.keycloak.events.EventBuilder;
 import org.keycloak.events.EventType;
+import org.keycloak.locale.LocaleSelectorProvider;
 import org.keycloak.models.AuthenticationFlowModel;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.Constants;
@@ -33,6 +34,7 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.protocol.AuthorizationEndpointBase;
 import org.keycloak.protocol.oidc.OIDCAdvancedConfigWrapper;
 import org.keycloak.protocol.oidc.OIDCLoginProtocol;
+import org.keycloak.protocol.oidc.TokenManager;
 import org.keycloak.protocol.oidc.endpoints.request.AuthorizationEndpointRequest;
 import org.keycloak.protocol.oidc.endpoints.request.AuthorizationEndpointRequestParserProcessor;
 import org.keycloak.protocol.oidc.utils.OIDCRedirectUriBuilder;
@@ -55,7 +57,6 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
 
-import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -133,6 +134,12 @@ public class AuthorizationEndpoint extends AuthorizationEndpointBase {
 
         if (!TokenUtil.isOIDCRequest(request.getScope())) {
             ServicesLogger.LOGGER.oidcScopeMissing();
+        }
+
+        if (!TokenManager.isValidScope(request.getScope(), client)) {
+            ServicesLogger.LOGGER.invalidParameter(OIDCLoginProtocol.SCOPE_PARAM);
+            event.error(Errors.INVALID_REQUEST);
+            return redirectErrorToClient(parsedResponseMode, OAuthErrorException.INVALID_REQUEST, "Invalid scopes: " + request.getScope());
         }
 
         errorResponse = checkOIDCParams();
@@ -239,7 +246,6 @@ public class AuthorizationEndpoint extends AuthorizationEndpointBase {
                 action = Action.CODE;
             }
         } catch (IllegalArgumentException iae) {
-            logger.error(iae.getMessage());
             event.error(Errors.INVALID_REQUEST);
             return redirectErrorToClient(OIDCResponseMode.QUERY, OAuthErrorException.UNSUPPORTED_RESPONSE_TYPE, null);
         }
@@ -444,6 +450,7 @@ public class AuthorizationEndpoint extends AuthorizationEndpointBase {
         if (request.getClaims()!= null) authenticationSession.setClientNote(OIDCLoginProtocol.CLAIMS_PARAM, request.getClaims());
         if (request.getAcr() != null) authenticationSession.setClientNote(OIDCLoginProtocol.ACR_PARAM, request.getAcr());
         if (request.getDisplay() != null) authenticationSession.setAuthNote(OAuth2Constants.DISPLAY, request.getDisplay());
+        if (request.getUiLocales() != null) authenticationSession.setAuthNote(LocaleSelectorProvider.CLIENT_REQUEST_LOCALE, request.getUiLocales());
 
         // https://tools.ietf.org/html/rfc7636#section-4
         if (request.getCodeChallenge() != null) authenticationSession.setClientNote(OIDCLoginProtocol.CODE_CHALLENGE_PARAM, request.getCodeChallenge());

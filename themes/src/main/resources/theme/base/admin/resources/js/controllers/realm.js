@@ -398,30 +398,44 @@ module.controller('RealmOtpPolicyCtrl', function($scope, Current, Realm, realm, 
     genericRealmUpdate($scope, Current, Realm, realm, serverInfo, $http, $route, Dialog, Notifications, "/realms/" + realm.realm + "/authentication/otp-policy");
 });
 
-module.controller('RealmWebAuthnPolicyCtrl', function($scope, Current, Realm, realm, serverInfo, $http, $route, Dialog, Notifications) {
+module.controller('RealmWebAuthnPolicyCtrl', function ($scope, Current, Realm, realm, serverInfo, $http, $route, $location, Dialog, Notifications) {
 
     $scope.deleteAcceptableAaguid = function(index) {
         $scope.realm.webAuthnPolicyAcceptableAaguids.splice(index, 1);
-    }
+    };
 
     $scope.addAcceptableAaguid = function() {
         $scope.realm.webAuthnPolicyAcceptableAaguids.push($scope.newAcceptableAaguid);
         $scope.newAcceptableAaguid = "";
-    }
+    };
+
+    // Just for case the user fill particular URL with disabled WebAuthn feature.
+    $scope.redirectIfWebAuthnDisabled = function () {
+        if (!serverInfo.featureEnabled('WEB_AUTHN')) {
+            $location.url("/realms/" + $scope.realm.realm + "/authentication");
+        }
+    };
 
     genericRealmUpdate($scope, Current, Realm, realm, serverInfo, $http, $route, Dialog, Notifications, "/realms/" + realm.realm + "/authentication/webauthn-policy");
 });
 
-module.controller('RealmWebAuthnPasswordlessPolicyCtrl', function($scope, Current, Realm, realm, serverInfo, $http, $route, Dialog, Notifications) {
+module.controller('RealmWebAuthnPasswordlessPolicyCtrl', function ($scope, Current, Realm, realm, serverInfo, $http, $route, $location, Dialog, Notifications) {
 
     $scope.deleteAcceptableAaguid = function(index) {
         $scope.realm.webAuthnPolicyPasswordlessAcceptableAaguids.splice(index, 1);
-    }
+    };
 
     $scope.addAcceptableAaguid = function() {
         $scope.realm.webAuthnPolicyPasswordlessAcceptableAaguids.push($scope.newAcceptableAaguid);
         $scope.newAcceptableAaguid = "";
-    }
+    };
+
+    // Just for case the user fill particular URL with disabled WebAuthn feature.
+    $scope.redirectIfWebAuthnDisabled = function () {
+        if (!serverInfo.featureEnabled('WEB_AUTHN')) {
+            $location.url("/realms/" + $scope.realm.realm + "/authentication");
+        }
+    };
 
     genericRealmUpdate($scope, Current, Realm, realm, serverInfo, $http, $route, Dialog, Notifications, "/realms/" + realm.realm + "/authentication/webauthn-policy-passwordless");
 });
@@ -886,6 +900,7 @@ module.controller('RealmIdentityProviderCtrl', function($scope, $filter, $upload
         $scope.identityProvider.authenticateByDefault = false;
         $scope.identityProvider.firstBrokerLoginFlowAlias = 'first broker login';
         $scope.identityProvider.config.useJwksUrl = 'true';
+        $scope.identityProvider.config.syncMode = 'IMPORT';
         $scope.newIdentityProvider = true;
     }
 
@@ -1145,6 +1160,8 @@ module.controller('RealmTokenDetailCtrl', function($scope, Realm, realm, $http, 
     $scope.realm.offlineSessionIdleTimeout = TimeUnit2.asUnit(realm.offlineSessionIdleTimeout);
     // KEYCLOAK-7688 Offline Session Max for Offline Token
     $scope.realm.offlineSessionMaxLifespan = TimeUnit2.asUnit(realm.offlineSessionMaxLifespan);
+    $scope.realm.clientSessionIdleTimeout = TimeUnit2.asUnit(realm.clientSessionIdleTimeout);
+    $scope.realm.clientSessionMaxLifespan = TimeUnit2.asUnit(realm.clientSessionMaxLifespan);
     $scope.realm.accessCodeLifespan = TimeUnit2.asUnit(realm.accessCodeLifespan);
     $scope.realm.accessCodeLifespanLogin = TimeUnit2.asUnit(realm.accessCodeLifespanLogin);
     $scope.realm.accessCodeLifespanUserAction = TimeUnit2.asUnit(realm.accessCodeLifespanUserAction);
@@ -1200,6 +1217,8 @@ module.controller('RealmTokenDetailCtrl', function($scope, Realm, realm, $http, 
         $scope.realm.offlineSessionIdleTimeout = $scope.realm.offlineSessionIdleTimeout.toSeconds();
         // KEYCLOAK-7688 Offline Session Max for Offline Token
         $scope.realm.offlineSessionMaxLifespan = $scope.realm.offlineSessionMaxLifespan.toSeconds();
+        $scope.realm.clientSessionIdleTimeout = $scope.realm.clientSessionIdleTimeout.toSeconds();
+        $scope.realm.clientSessionMaxLifespan = $scope.realm.clientSessionMaxLifespan.toSeconds();
         $scope.realm.accessCodeLifespan = $scope.realm.accessCodeLifespan.toSeconds();
         $scope.realm.accessCodeLifespanUserAction = $scope.realm.accessCodeLifespanUserAction.toSeconds();
         $scope.realm.accessCodeLifespanLogin = $scope.realm.accessCodeLifespanLogin.toSeconds();
@@ -1651,15 +1670,8 @@ module.controller('RealmSMTPSettingsCtrl', function($scope, Current, Realm, real
         $scope.changed = false;
     };
 
-    var initSMTPTest = function() {
-        return {
-            realm: $scope.realm.realm,
-            config: JSON.stringify(realm.smtpServer)
-        };
-    };
-
     $scope.testConnection = function() {
-        RealmSMTPConnectionTester.send(initSMTPTest(), function() {
+        RealmSMTPConnectionTester.save({realm: realm.realm}, realm.smtpServer, function() {
             Notifications.success("SMTP connection successful. E-mail was sent!");
         }, function(errorResponse) {
             if (error.data.errorMessage) {
@@ -2083,6 +2095,7 @@ module.controller('IdentityProviderMapperCreateCtrl', function($scope, realm, id
     
     // make first type the default
     $scope.mapperType = mapperTypes[Object.keys(mapperTypes)[0]];
+    $scope.mapper.config.syncMode = 'INHERIT';
 
     $scope.$watch(function() {
         return $location.path();

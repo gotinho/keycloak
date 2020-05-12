@@ -1,12 +1,14 @@
 package org.keycloak.services.resources.account;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import org.jboss.logging.Logger;
 import org.jboss.resteasy.annotations.cache.NoCache;
 import org.keycloak.authentication.Authenticator;
 import org.keycloak.authentication.AuthenticatorFactory;
 import org.keycloak.credential.CredentialModel;
 import org.keycloak.credential.CredentialProvider;
 import org.keycloak.credential.CredentialTypeMetadata;
+import org.keycloak.credential.CredentialTypeMetadataContext;
 import org.keycloak.credential.PasswordCredentialProvider;
 import org.keycloak.credential.PasswordCredentialProviderFactory;
 import org.keycloak.credential.UserCredentialStoreManager;
@@ -16,13 +18,16 @@ import org.keycloak.models.*;
 import org.keycloak.models.utils.ModelToRepresentation;
 import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.services.ErrorResponse;
+import org.keycloak.services.ErrorResponseException;
 import org.keycloak.services.managers.Auth;
 import org.keycloak.services.messages.Messages;
+import org.keycloak.util.JsonSerialization;
 import org.keycloak.utils.MediaType;
 
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DELETE;
 import javax.ws.rs.GET;
+import javax.ws.rs.NotFoundException;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
 import javax.ws.rs.Path;
@@ -31,6 +36,7 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Response;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -39,8 +45,11 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.keycloak.models.AuthenticationExecutionModel.Requirement.DISABLED;
+import static org.keycloak.utils.CredentialHelper.createUserStorageCredentialRepresentation;
 
 public class AccountCredentialResource {
+
+    private static final Logger logger = Logger.getLogger(AccountCredentialResource.class);
 
     public static final String TYPE = "type";
     public static final String ENABLED_ONLY = "enabled-only";
@@ -155,13 +164,13 @@ public class AccountCredentialResource {
                                                      @QueryParam(USER_CREDENTIALS) Boolean userCredentials) {
         auth.requireOneOf(AccountRoles.MANAGE_ACCOUNT, AccountRoles.VIEW_PROFILE);
 
-        boolean filterUserCredentials = userCredentials != null && !userCredentials;
+        boolean includeUserCredentials = userCredentials == null || userCredentials;
 
         List<CredentialContainer> credentialTypes = new LinkedList<>();
         List<CredentialProvider> credentialProviders = UserCredentialStoreManager.getCredentialProviders(session, realm, CredentialProvider.class);
         Set<String> enabledCredentialTypes = getEnabledCredentialTypes(credentialProviders);
 
-        List<CredentialModel> models = filterUserCredentials ? null : session.userCredentialManager().getStoredCredentials(realm, user);
+        List<CredentialModel> models = includeUserCredentials ? session.userCredentialManager().getStoredCredentials(realm, user) : null;
 
         // Don't return secrets from REST endpoint
         if (models != null) {
@@ -185,12 +194,33 @@ public class AccountCredentialResource {
                 continue;
             }
 
-            CredentialTypeMetadata metadata = credentialProvider.getCredentialTypeMetadata();
+            CredentialTypeMetadataContext ctx = CredentialTypeMetadataContext.builder()
+                    .user(user)
+                    .build(session);
+            CredentialTypeMetadata metadata = credentialProvider.getCredentialTypeMetadata(ctx);
 
-            List<CredentialRepresentation> userCredentialModels = filterUserCredentials ? null : models.stream()
-                    .filter(credentialModel -> credentialProvider.getType().equals(credentialModel.getType()))
-                    .map(ModelToRepresentation::toRepresentation)
-                    .collect(Collectors.toList());
+            List<CredentialRepresentation> userCredentialModels = null;
+            if (includeUserCredentials) {
+                userCredentialModels = models.stream()
+                        .filter(credentialModel -> credentialProvider.getType().equals(credentialModel.getType()))
+                        .map(ModelToRepresentation::toRepresentation)
+                        .collect(Collectors.toList());
+
+                if (userCredentialModels.isEmpty() &&
+                        session.userCredentialManager().isConfiguredFor(realm, user, credentialProviderType)) {
+                    // In case user is federated in the userStorage, he may have credential configured on the userStorage side. We're
+                    // creating "dummy" credential representing the credential provided by userStorage
+                    CredentialRepresentation credential = createUserStorageCredentialRepresentation(credentialProviderType);
+
+                    userCredentialModels = Collections.singletonList(credential);
+                }
+
+                // In case that there are no userCredentials AND there are not required actions for setup new credential,
+                // we won't include credentialType as user won't be able to do anything with it
+                if (userCredentialModels.isEmpty() && metadata.getCreateAction() == null && metadata.getUpdateAction() == null) {
+                    continue;
+                }
+            }
 
             CredentialContainer credType = new CredentialContainer(metadata, userCredentialModels);
             credentialTypes.add(credType);
@@ -255,6 +285,10 @@ public class AccountCredentialResource {
     @NoCache
     public void removeCredential(final @PathParam("credentialId") String credentialId) {
         auth.require(AccountRoles.MANAGE_ACCOUNT);
+        CredentialModel credential = session.userCredentialManager().getStoredCredentialById(realm, user, credentialId);
+        if (credential == null) {
+            throw new NotFoundException("Credential not found");
+        }
         session.userCredentialManager().removeStoredCredential(realm, user, credentialId);
     }
 
@@ -263,14 +297,25 @@ public class AccountCredentialResource {
      * Update a user label of specified credential of current user
      *
      * @param credentialId ID of the credential, which will be updated
-     * @param userLabel new user label
+     * @param userLabel new user label as JSON string
      */
     @PUT
-    @Consumes(javax.ws.rs.core.MediaType.TEXT_PLAIN)
+    @Consumes(MediaType.APPLICATION_JSON)
     @Path("{credentialId}/label")
+    @NoCache
     public void setLabel(final @PathParam("credentialId") String credentialId, String userLabel) {
         auth.require(AccountRoles.MANAGE_ACCOUNT);
-        session.userCredentialManager().updateCredentialLabel(realm, user, credentialId, userLabel);
+        CredentialModel credential = session.userCredentialManager().getStoredCredentialById(realm, user, credentialId);
+        if (credential == null) {
+            throw new NotFoundException("Credential not found");
+        }
+
+        try {
+            String label = JsonSerialization.readValue(userLabel, String.class);
+            session.userCredentialManager().updateCredentialLabel(realm, user, credentialId, label);
+        } catch (IOException ioe) {
+            throw new ErrorResponseException(ErrorResponse.error(Messages.INVALID_REQUEST, Response.Status.BAD_REQUEST));
+        }
     }
 
     // TODO: This is kept here for now and commented.
@@ -348,7 +393,9 @@ public class AccountCredentialResource {
             return ErrorResponse.error(e.getMessage(), e.getParameters(), Response.Status.BAD_REQUEST);
         }
 
-        return Response.ok().build();
+        event.client(auth.getClient()).user(auth.getUser()).success();
+
+        return Response.noContent().build();
     }
 
     public static class PasswordDetails {

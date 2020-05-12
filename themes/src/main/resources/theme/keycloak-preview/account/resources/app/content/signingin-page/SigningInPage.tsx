@@ -57,7 +57,7 @@ interface UserCredential {
     id: string;
     type: string;
     userLabel: string;
-    createdDate: number;
+    createdDate?: number;
     strCreatedDate?: string;
 }
 
@@ -69,7 +69,6 @@ interface CredentialContainer {
     helptext?: string;
     createAction?: string;
     updateAction?: string;
-    iconCssClass: string;
     removeable: boolean;
     userCredentials: UserCredential[];
 }
@@ -86,8 +85,6 @@ interface SigningInPageState {
  * @author Stan Silvert ssilvert@redhat.com (C) 2018 Red Hat Inc.
  */
 class SigningInPage extends React.Component<SigningInPageProps, SigningInPageState> {
-    private readonly updatePassword: AIACommand = new AIACommand('UPDATE_PASSWORD', this.props.location.pathname);
-    private readonly setUpTOTP: AIACommand = new AIACommand('CONFIGURE_TOTP', this.props.location.pathname);
 
     public constructor(props: SigningInPageProps) {
         super(props);
@@ -185,7 +182,7 @@ class SigningInPage extends React.Component<SigningInPageProps, SigningInPageSta
         const type: string = credContainer.type;
         const displayName: string = credContainer.displayName;
 
-        if (userCredentials.length === 0) {
+        if (!userCredentials || userCredentials.length === 0) {
             const localizedDisplayName = Msg.localize(displayName);
             return (
                 <DataListItem key='no-credentials-list-item' aria-labelledby='no-credentials-list-item'>
@@ -203,12 +200,12 @@ class SigningInPage extends React.Component<SigningInPageProps, SigningInPageSta
 
         userCredentials.forEach(credential => {
             if (!credential.userLabel) credential.userLabel = Msg.localize(credential.type);
-            credential.strCreatedDate = moment(credential.createdDate).format('LLL');
+            if (credential.hasOwnProperty('createdDate') && credential.createdDate! > 0) credential.strCreatedDate = moment(credential.createdDate).format('LLL');
         });
 
         let updateAIA: AIACommand;
         if (credContainer.updateAction) {
-            updateAIA = new AIACommand(credContainer.updateAction, this.props.location.pathname);
+            updateAIA = new AIACommand(credContainer.updateAction);
         }
 
         return (
@@ -216,12 +213,7 @@ class SigningInPage extends React.Component<SigningInPageProps, SigningInPageSta
                 userCredentials.map(credential => (
                     <DataListItem id={`${SigningInPage.credElementId(type, credential.id, 'row')}`} key={'credential-list-item-' + credential.id} aria-labelledby={'credential-list-item-' + credential.userLabel}>
                         <DataListItemRow key={'userCredentialRow-' + credential.id}>
-                            <DataListItemCells
-                                dataListCells={[
-                                    <DataListCell id={`${SigningInPage.credElementId(type, credential.id, 'label')}`} key={'userLabel-' + credential.id}>{credential.userLabel}</DataListCell>,
-                                    <DataListCell id={`${SigningInPage.credElementId(type, credential.id, 'created-at')}`} key={'created-' + credential.id}><strong><Msg msgKey='credentialCreatedAt'/>: </strong>{credential.strCreatedDate}</DataListCell>,
-                                    <DataListCell key={'spacer-' + credential.id}/>
-                                ]}/>
+                            <DataListItemCells dataListCells={this.credentialRowCells(credential, type)}/>
 
                             <CredentialAction credential={credential}
                                               removeable={removeable}
@@ -234,12 +226,23 @@ class SigningInPage extends React.Component<SigningInPageProps, SigningInPageSta
             </React.Fragment>)
     }
 
+    private credentialRowCells(credential: UserCredential, type: string): React.ReactNode[] {
+        const credRowCells: React.ReactNode[] = [];
+        credRowCells.push(<DataListCell id={`${SigningInPage.credElementId(type, credential.id, 'label')}`} key={'userLabel-' + credential.id}>{credential.userLabel}</DataListCell>);
+        if (credential.strCreatedDate) {
+            credRowCells.push(<DataListCell id={`${SigningInPage.credElementId(type, credential.id, 'created-at')}`} key={'created-' + credential.id}><strong><Msg msgKey='credentialCreatedAt'/>: </strong>{credential.strCreatedDate}</DataListCell>);
+            credRowCells.push(<DataListCell key={'spacer-' + credential.id}/>);
+        }
+
+        return credRowCells;
+    }
+
     private renderCredTypeTitle(credContainer: CredentialContainer): React.ReactNode {
-        if (credContainer.category === 'password') return;
+        if (!credContainer.hasOwnProperty('helptext') && !credContainer.hasOwnProperty('createAction')) return;
 
         let setupAction: AIACommand;
         if (credContainer.createAction) {
-            setupAction = new AIACommand(credContainer.createAction, this.props.location.pathname);
+            setupAction = new AIACommand(credContainer.createAction);
         }
         const credContainerDisplayName: string = Msg.localize(credContainer.displayName);
 
@@ -253,7 +256,9 @@ class SigningInPage extends React.Component<SigningInPageProps, SigningInPageSta
                                     <Title headingLevel={TitleLevel.h3} size='2xl'>
                                         <strong id={`${credContainer.type}-cred-title`}><Msg msgKey={credContainer.displayName}/></strong>
                                     </Title>
-                                    <span id={`${credContainer.type}-cred-help`}><Msg msgKey={credContainer.helptext}/></span>
+                                    <span id={`${credContainer.type}-cred-help`}>
+                                        {credContainer.helptext && <Msg msgKey={credContainer.helptext}/>}
+                                    </span>
                                 </DataListCell>,
 
                             ]}/>

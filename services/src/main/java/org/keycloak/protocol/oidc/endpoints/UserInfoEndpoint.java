@@ -35,6 +35,7 @@ import org.keycloak.jose.jws.JWSBuilder;
 import org.keycloak.models.AuthenticatedClientSessionModel;
 import org.keycloak.models.ClientModel;
 import org.keycloak.models.ClientSessionContext;
+import org.keycloak.protocol.oidc.TokenManager.NotBeforeCheck;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
@@ -137,6 +138,7 @@ public class UserInfoEndpoint {
         }
 
         AccessToken token;
+        ClientModel clientModel;
         try {
             TokenVerifier<AccessToken> verifier = TokenVerifier.create(tokenString, AccessToken.class).withDefaultChecks()
                     .realmUrl(Urls.realmIssuer(session.getContext().getUri().getBaseUri(), realm.getName()));
@@ -145,15 +147,19 @@ public class UserInfoEndpoint {
             verifier.verifierContext(verifierContext);
 
             token = verifier.verify().getToken();
+
+            clientModel = realm.getClientByClientId(token.getIssuedFor());
+            if (clientModel == null) {
+                event.error(Errors.CLIENT_NOT_FOUND);
+                throw new ErrorResponseException(OAuthErrorException.INVALID_REQUEST, "Client not found", Response.Status.BAD_REQUEST);
+            }
+
+            TokenVerifier.createWithoutSignature(token)
+                    .withChecks(NotBeforeCheck.forModel(clientModel))
+                    .verify();
         } catch (VerificationException e) {
             event.error(Errors.INVALID_TOKEN);
             throw newUnauthorizedErrorResponseException(OAuthErrorException.INVALID_TOKEN, "Token verification failed");
-        }
-
-        ClientModel clientModel = realm.getClientByClientId(token.getIssuedFor());
-        if (clientModel == null) {
-            event.error(Errors.CLIENT_NOT_FOUND);
-            throw new ErrorResponseException(OAuthErrorException.INVALID_REQUEST, "Client not found", Response.Status.BAD_REQUEST);
         }
 
 	    if (!clientModel.getProtocol().equals(OIDCLoginProtocol.LOGIN_PROTOCOL)) {
@@ -197,11 +203,17 @@ public class UserInfoEndpoint {
         ClientSessionContext clientSessionCtx = DefaultClientSessionContext.fromClientSessionScopeParameter(clientSession, session);
 
         AccessToken userInfo = new AccessToken();
+        
+        userInfo.subject(userModel.getId());
+        
         tokenManager.transformUserInfoAccessToken(session, userInfo, userSession, clientSessionCtx);
 
         Map<String, Object> claims = new HashMap<>();
-        claims.put("sub", userModel.getId());
         claims.putAll(userInfo.getOtherClaims());
+        // we always set the subject to the correct value and ignore any mapper (not directly related to subject mapping such as 
+        // pseudo-subjects). the endpoint should always return a valid subject identifier.
+        // any attempt to customize the value of this field should be done through a different claim
+        claims.put("sub", userInfo.getSubject());
 
         Response.ResponseBuilder responseBuilder;
         OIDCAdvancedConfigWrapper cfg = OIDCAdvancedConfigWrapper.fromClientModel(clientModel);
